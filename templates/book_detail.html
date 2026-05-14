@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+
+{% block title %}{{ book.title }} · 本棚{% endblock %}
+
+{% set status_badge = {
+  'unread':   'bg-border/60 text-warm',
+  'reading':  'bg-matcha/30 text-ink',
+  'finished': 'bg-sakura/30 text-ink',
+} %}
+{% set status_label_map = {'unread':'未读', 'reading':'在读', 'finished':'已读'} %}
+
+{% block content %}
+
+<a href="{{ url_for('books.index') }}"
+   class="text-sm text-warm hover:text-ink flex items-center gap-1 mb-6">
+  <i data-lucide="arrow-left" class="w-4 h-4"></i><span>返回书架</span>
+</a>
+
+<article class="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-10 mb-12">
+  {# 大封面 #}
+  <div>
+    <div class="aspect-[3/4] bg-cream border border-border rounded-lg overflow-hidden flex items-center justify-center shadow-soft">
+      {% if book.cover_url %}
+        <img src="{{ book.cover_url }}" alt="{{ book.title }}" class="w-full h-full object-cover" />
+      {% elif book.epub_filename %}
+        <img src="{{ url_for('books.extracted_cover', book_id=book.id) }}"
+             alt="{{ book.title }}"
+             class="w-full h-full object-cover"
+             onerror="this.onerror=null;this.style.display='none';this.parentElement.insertAdjacentHTML('beforeend','<span class=&quot;font-serif text-7xl text-warm/40 select-none&quot;>{{ book.title[0] if book.title else '书' }}</span>');" />
+      {% else %}
+        <span class="font-serif text-7xl text-warm/40 select-none">{{ book.title[0] if book.title else '书' }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {# 元信息 #}
+  <div>
+    <span class="inline-block text-xs px-2.5 py-1 rounded-full {{ status_badge.get(book.status, 'bg-border text-warm') }} mb-3">
+      {{ status_label_map.get(book.status, book.status) }}
+    </span>
+    <h1 class="text-3xl font-serif font-medium text-ink leading-tight mb-2">{{ book.title }}</h1>
+    <p class="text-warm mb-6">{{ book.author }}</p>
+
+    {# 评分 #}
+    <div class="mb-6">
+      <p class="text-xs text-warm mb-1">评分</p>
+      <p class="text-lg text-sakura tracking-wider font-serif">
+        {% if book.rating %}
+          {{ '★' * book.rating }}<span class="text-border">{{ '★' * (5 - book.rating) }}</span>
+          <span class="text-sm text-warm ml-2">{{ book.rating }} / 5</span>
+        {% else %}
+          <span class="text-sm text-warm font-sans">暂无评分</span>
+        {% endif %}
+      </p>
+    </div>
+
+    {# 元信息列表 #}
+    <dl class="text-sm space-y-2 mb-6">
+      {% if book.publisher %}
+      <div class="flex gap-3">
+        <dt class="text-warm w-16 shrink-0">出版社</dt>
+        <dd class="text-ink">{{ book.publisher }}</dd>
+      </div>
+      {% endif %}
+      {% if book.publish_date %}
+      <div class="flex gap-3">
+        <dt class="text-warm w-16 shrink-0">出版</dt>
+        <dd class="text-ink">{{ book.publish_date.strftime('%Y年%m月%d日') }}</dd>
+      </div>
+      {% endif %}
+      {% if book.isbn %}
+      <div class="flex gap-3">
+        <dt class="text-warm w-16 shrink-0">ISBN</dt>
+        <dd class="text-ink font-mono text-xs">{{ book.isbn }}</dd>
+      </div>
+      {% endif %}
+      <div class="flex gap-3">
+        <dt class="text-warm w-16 shrink-0">添加于</dt>
+        <dd class="text-ink">{{ book.created_at.strftime('%Y-%m-%d') }}</dd>
+      </div>
+      {% if book.last_read_at %}
+      <div class="flex gap-3">
+        <dt class="text-warm w-16 shrink-0">上次阅读</dt>
+        <dd class="text-ink">{{ book.last_read_at.strftime('%Y-%m-%d %H:%M') }}</dd>
+      </div>
+      {% endif %}
+      {% if book.total_reading_seconds %}
+      <div class="flex gap-3">
+        <dt class="text-warm w-16 shrink-0">阅读时长</dt>
+        <dd class="text-ink">{{ book.total_reading_seconds|reading_time_fmt }}</dd>
+      </div>
+      {% endif %}
+      {% if book.reading_progress is not none %}
+      <div class="flex gap-3">
+        <dt class="text-warm w-16 shrink-0">阅读进度</dt>
+        <dd class="text-ink flex items-center gap-2">
+          <div class="w-24 h-1.5 bg-border rounded-full overflow-hidden">
+            <div class="h-full bg-matcha rounded-full" style="width:{{ (book.reading_progress * 100)|round }}%"></div>
+          </div>
+          <span class="text-xs">{{ (book.reading_progress * 100)|round }}%</span>
+        </dd>
+      </div>
+      {% endif %}
+    </dl>
+
+    {# 标签 #}
+    {% if book.tags %}
+    <div class="mb-6">
+      <p class="text-xs text-warm mb-2">标签</p>
+      <div class="flex flex-wrap gap-2">
+        {% for tag in book.tags %}
+          <a href="{{ url_for('books.index', tag=tag.name) }}"
+             class="text-xs px-2.5 py-1 rounded-full bg-sky/30 text-ink/80 hover:bg-sky/50 transition-colors">
+            {{ tag.name }}
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# 快速操作区 #}
+    <div class="border-t border-border pt-5 mb-5">
+      <p class="text-xs text-warm mb-2">快速更新</p>
+      <form method="post" action="{{ url_for('books.quick_update', book_id=book.id) }}" class="inline-flex items-center gap-2 mb-3 mr-2">
+        <input type="hidden" name="field" value="status" />
+        <select name="value" onchange="this.form.submit()"
+                class="text-sm px-3 py-1.5 bg-white border border-border rounded-lg">
+          {% for val, label in status_choices %}
+            <option value="{{ val }}" {% if book.status == val %}selected{% endif %}>状态 : {{ label }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      <form method="post" action="{{ url_for('books.quick_update', book_id=book.id) }}" class="inline-flex items-center gap-2">
+        <input type="hidden" name="field" value="rating" />
+        <select name="value" onchange="this.form.submit()"
+                class="text-sm px-3 py-1.5 bg-white border border-border rounded-lg">
+          <option value="" {% if not book.rating %}selected{% endif %}>评分 : 无</option>
+          {% for r in [1, 2, 3, 4, 5] %}
+            <option value="{{ r }}" {% if book.rating == r %}selected{% endif %}>评分 : {{ '★' * r }} ({{ r }})</option>
+          {% endfor %}
+        </select>
+      </form>
+    </div>
+
+    {# 操作按钮区 #}
+    <div class="flex items-center gap-3 flex-wrap">
+      {% if book.epub_filename %}
+        <a href="{{ url_for('books.read', book_id=book.id) }}"
+           class="px-4 py-2 text-sm border border-matcha bg-matcha/15 text-ink rounded-lg hover:bg-matcha/30 transition-colors flex items-center gap-2">
+          <i data-lucide="book-open" class="w-4 h-4"></i>
+          <span>在线阅读</span>
+        </a>
+        <a href="{{ url_for('books.epub_file', book_id=book.id, download=1) }}"
+           class="px-4 py-2 text-sm border border-border text-ink rounded-lg hover:bg-cream transition-colors flex items-center gap-2"
+           title="下载 {{ book.epub_filename }}">
+          <i data-lucide="download" class="w-4 h-4"></i>
+          <span>下载 EPUB</span>
+        </a>
+        {% if book.annotations|length > 0 %}
+          <div class="relative group">
+            <button type="button"
+                    class="px-4 py-2 text-sm border border-sakura text-ink rounded-lg hover:bg-sakura/15 transition-colors flex items-center gap-2">
+              <i data-lucide="notebook-pen" class="w-4 h-4"></i>
+              <span>导出批注</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-sakura/25 text-ink">{{ book.annotations|length }}</span>
+              <i data-lucide="chevron-down" class="w-3 h-3"></i>
+            </button>
+            <div class="absolute left-0 top-full pt-1 hidden group-hover:block z-20 min-w-[160px]">
+              <div class="bg-white border border-border rounded-lg shadow-soft py-1">
+                <a href="{{ url_for('annotations.export', book_id=book.id, fmt='md') }}" class="block px-4 py-2 text-sm text-ink hover:bg-cream">Markdown</a>
+                <a href="{{ url_for('annotations.export', book_id=book.id, fmt='txt') }}" class="block px-4 py-2 text-sm text-ink hover:bg-cream">纯文本 TXT</a>
+                <a href="{{ url_for('annotations.export', book_id=book.id, fmt='json') }}" class="block px-4 py-2 text-sm text-ink hover:bg-cream">JSON</a>
+                <a href="{{ url_for('annotations.export', book_id=book.id, fmt='csv') }}" class="block px-4 py-2 text-sm text-ink hover:bg-cream">CSV (Excel)</a>
+              </div>
+            </div>
+          </div>
+        {% endif %}
+      {% endif %}
+
+      {# 添加到书单 #}
+      {% if shelves %}
+      <div class="relative group">
+        <button type="button"
+                class="px-4 py-2 text-sm border border-sky text-ink rounded-lg hover:bg-sky/15 transition-colors flex items-center gap-2">
+          <i data-lucide="list-plus" class="w-4 h-4"></i>
+          <span>加入书单</span>
+          <i data-lucide="chevron-down" class="w-3 h-3"></i>
+        </button>
+        <div class="absolute left-0 top-full pt-1 hidden group-hover:block z-20 min-w-[160px]">
+          <div class="bg-white border border-border rounded-lg shadow-soft py-1 max-h-48 overflow-y-auto">
+            {% for shelf in shelves %}
+              <button type="button" data-shelf-id="{{ shelf.id }}"
+                      class="shelf-add-btn w-full text-left px-4 py-2 text-sm text-ink hover:bg-cream">
+                {{ shelf.name }}
+              </button>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <a href="{{ url_for('books.edit', book_id=book.id) }}"
+         class="px-4 py-2 text-sm border border-matcha text-ink rounded-lg hover:bg-matcha/20 transition-colors flex items-center gap-2">
+        <i data-lucide="edit-3" class="w-4 h-4"></i>
+        <span>编辑</span>
+      </a>
+      <button type="button" id="delete-book-btn"
+              class="px-4 py-2 text-sm border border-sakura text-sakura rounded-lg hover:bg-sakura/15 transition-colors flex items-center gap-2">
+        <i data-lucide="trash-2" class="w-4 h-4"></i>
+        <span>删除</span>
+      </button>
+      <form method="post" action="{{ url_for('books.delete', book_id=book.id) }}" id="delete-form" class="hidden"></form>
+    </div>
+  </div>
+</article>
+
+{# 笔记区 #}
+<section>
+  <h2 class="text-xl font-serif font-medium text-ink mb-4 flex items-center gap-2">
+    <i data-lucide="notebook-pen" class="w-5 h-5 text-warm"></i>
+    <span>读书笔记</span>
+    {% if book.notes %}<span class="text-sm text-warm font-sans">· {{ book.notes|length }}</span>{% endif %}
+  </h2>
+
+  <form method="post" action="{{ url_for('notes.create', book_id=book.id) }}" class="mb-6">
+    <textarea name="content" rows="4" required
+              class="w-full px-4 py-3 text-sm bg-white border border-border rounded-lg placeholder:text-warm/60 leading-relaxed"
+              placeholder="写下你的读书心得、摘抄或评论…"></textarea>
+    <div class="flex items-center justify-between mt-2">
+      <p class="text-xs text-warm">支持多行，按时间倒序展示</p>
+      <button type="submit"
+              class="px-5 py-2 text-sm border border-matcha text-ink rounded-lg hover:bg-matcha/25 transition-colors flex items-center gap-2">
+        <i data-lucide="send" class="w-4 h-4"></i>
+        <span>添加笔记</span>
+      </button>
+    </div>
+  </form>
+
+  {% if book.notes %}
+    <div class="space-y-4">
+      {% for note in book.notes %}
+        <div class="note-item bg-cream border border-border rounded-lg p-5 relative group transition-all">
+          <p class="text-ink leading-relaxed whitespace-pre-wrap pr-8">{{ note.content }}</p>
+          <div class="flex items-center justify-between mt-3">
+            <p class="text-xs text-warm">{{ note.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+            <form method="post" action="{{ url_for('notes.delete', note_id=note.id) }}"
+                  onsubmit="return confirm('确认删除这条笔记？');"
+                  class="opacity-0 group-hover:opacity-100 transition-opacity">
+              <button type="submit" class="text-xs text-warm hover:text-sakura flex items-center gap-1">
+                <i data-lucide="trash" class="w-3.5 h-3.5"></i>
+                <span>删除</span>
+              </button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-sm text-warm italic">还没有笔记，写下第一段心得吧</p>
+  {% endif %}
+</section>
+
+<script>
+(function () {
+  // 软删除 + Toast 撤销
+  var deleteBtn = document.getElementById('delete-book-btn');
+  var deleteForm = document.getElementById('delete-form');
+  if (deleteBtn && deleteForm) {
+    deleteBtn.addEventListener('click', function () {
+      if (!confirm('确认从书架移除《{{ book.title }}》？')) return;
+      deleteForm.submit();
+    });
+  }
+
+  // 添加到书单
+  document.querySelectorAll('.shelf-add-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var shelfId = btn.dataset.shelfId;
+      fetch('/api/shelves/' + shelfId + '/add-book', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ book_id: {{ book.id }} }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.ok) {
+            window.showToast && window.showToast('已加入书单');
+          }
+        })
+        .catch(function (e) { alert('操作失败: ' + (e.message || e)); });
+    });
+  });
+})();
+</script>
+
+{% endblock %}

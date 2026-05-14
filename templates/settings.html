@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block title %}设置 · 本棚{% endblock %}
+{% block search_bar %}{% endblock %}
+
+{% block content %}
+
+<section class="mb-8">
+  <h1 class="text-3xl font-serif font-medium text-ink mb-1">设置</h1>
+  <p class="text-sm text-warm">管理翻译引擎和阅读目标</p>
+</section>
+
+<div class="max-w-2xl space-y-8">
+  {# 翻译引擎设置 #}
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <h2 class="font-serif text-lg text-ink mb-4 flex items-center gap-2">
+      <i data-lucide="languages" class="w-5 h-5 text-warm"></i>
+      <span>翻译引擎</span>
+    </h2>
+
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm text-ink mb-1.5 font-medium" for="translate-engine">翻译引擎</label>
+        <select id="translate-engine"
+                class="w-full px-3.5 py-2.5 text-sm bg-white border border-border rounded-lg">
+          <option value="google" {% if settings.get('translate_engine', 'google') == 'google' %}selected{% endif %}>
+            Google 翻译（免费）
+          </option>
+          <option value="deepseek" {% if settings.get('translate_engine') == 'deepseek' %}selected{% endif %}>
+            DeepSeek AI（需要 API Key）
+          </option>
+        </select>
+      </div>
+
+      <div id="deepseek-config" class="{% if settings.get('translate_engine') != 'deepseek' %}hidden{% endif %}">
+        <label class="block text-sm text-ink mb-1.5 font-medium" for="deepseek-key">DeepSeek API Key</label>
+        <div class="flex gap-2">
+          <input id="deepseek-key" type="password"
+                 value="{{ '••••••••' if settings.get('deepseek_api_key') else '' }}"
+                 placeholder="sk-..."
+                 class="flex-1 px-3.5 py-2.5 text-sm bg-white border border-border rounded-lg placeholder:text-warm/60" />
+          <button type="button" id="clear-key"
+                  class="px-3 py-2 text-sm border border-border text-warm rounded-lg hover:bg-cream">
+            清除
+          </button>
+        </div>
+        <p class="text-xs text-warm mt-1">API Key 仅保存在本地，不会上传到任何第三方</p>
+      </div>
+    </div>
+  </div>
+
+  {# 阅读目标 #}
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <h2 class="font-serif text-lg text-ink mb-4 flex items-center gap-2">
+      <i data-lucide="target" class="w-5 h-5 text-warm"></i>
+      <span>阅读目标</span>
+    </h2>
+
+    <div>
+      <label class="block text-sm text-ink mb-1.5 font-medium" for="reading-goal">年度阅读目标（本）</label>
+      <input id="reading-goal" type="number" min="0" max="999"
+             value="{{ settings.get('reading_goal_yearly', 0) }}"
+             class="w-32 px-3.5 py-2.5 text-sm bg-white border border-border rounded-lg" />
+      <p class="text-xs text-warm mt-1">设为 0 表示不设置目标</p>
+    </div>
+  </div>
+
+  {# 保存按钮 #}
+  <div class="flex items-center gap-3">
+    <button type="button" id="save-settings"
+            class="px-6 py-2.5 text-sm border border-matcha text-ink rounded-lg hover:bg-matcha/25 transition-colors flex items-center gap-2">
+      <i data-lucide="check" class="w-4 h-4"></i>
+      <span>保存设置</span>
+    </button>
+    <span id="save-status" class="text-sm text-matcha hidden">已保存</span>
+  </div>
+</div>
+
+<script>
+(function () {
+  const engineSelect = document.getElementById('translate-engine');
+  const deepseekConfig = document.getElementById('deepseek-config');
+  const keyInput = document.getElementById('deepseek-key');
+  const clearBtn = document.getElementById('clear-key');
+  const goalInput = document.getElementById('reading-goal');
+  const saveBtn = document.getElementById('save-settings');
+  const saveStatus = document.getElementById('save-status');
+
+  // 引擎切换时显示/隐藏 DeepSeek 配置
+  engineSelect.addEventListener('change', function () {
+    deepseekConfig.classList.toggle('hidden', this.value !== 'deepseek');
+  });
+
+  // 清除 API Key
+  clearBtn.addEventListener('click', function () {
+    keyInput.value = '';
+    keyInput.type = 'text';
+    keyInput.focus();
+  });
+
+  // 保存
+  saveBtn.addEventListener('click', function () {
+    const data = {
+      translate_engine: engineSelect.value,
+      reading_goal_yearly: parseInt(goalInput.value) || 0,
+    };
+    // 只有当用户修改了 key 时才传(不是占位 ••••)
+    const keyVal = keyInput.value.trim();
+    if (keyVal && !keyVal.startsWith('••')) {
+      data.deepseek_api_key = keyVal;
+    } else if (keyVal === '') {
+      data.deepseek_api_key = '';
+    }
+
+    fetch('/api/settings/translate', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function () {
+        saveStatus.classList.remove('hidden');
+        setTimeout(function () { saveStatus.classList.add('hidden'); }, 2000);
+      })
+      .catch(function (e) {
+        alert('保存失败: ' + (e.message || e));
+      });
+  });
+})();
+</script>
+
+{% endblock %}

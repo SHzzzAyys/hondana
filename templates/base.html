@@ -1,0 +1,358 @@
+{# 基础布局模板 - 日系清新风 #}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}本棚 · 个人书架{% endblock %}</title>
+
+  {# Google Fonts: Noto Serif SC (明朝体标题) + Noto Sans SC (正文) #}
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600&family=Noto+Sans+SC:wght@300;400;500&display=swap" rel="stylesheet" />
+
+  {# Tailwind CSS via CDN #}
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Tailwind 自定义主题 - 日系清新配色
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            washi:   '#FAF8F3',   // 和纸米白（主背景）
+            cream:   '#F5F1E8',   // 奶油色（次背景）
+            ink:     '#3D3D3D',   // 炭灰（主文字）
+            warm:    '#8A8680',   // 暖灰（次文字）
+            matcha:  '#A8C8B8',   // 柔雾绿（按钮/链接）
+            sakura:  '#E8B4A0',   // 樱花粉（徽标/强调）
+            sky:     '#C4D5E0',   // 淡蓝（标签）
+            border:  '#E5E0D5',   // 浅米边框
+          },
+          fontFamily: {
+            serif: ['"Noto Serif SC"', 'ui-serif', 'serif'],
+            sans:  ['"Noto Sans SC"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+          },
+          boxShadow: {
+            'soft': '0 1px 3px rgba(61, 61, 61, 0.04), 0 1px 2px rgba(61, 61, 61, 0.03)',
+          },
+        }
+      }
+    }
+  </script>
+
+  {# Lucide Icons #}
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  {# ECharts #}
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+
+  <style>
+    html, body {
+      font-family: 'Noto Sans SC', ui-sans-serif, system-ui, sans-serif;
+      background-color: #FAF8F3;
+      color: #3D3D3D;
+    }
+    /* 表单聚焦柔雾绿边框 */
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #A8C8B8;
+      box-shadow: 0 0 0 3px rgba(168, 200, 184, 0.2);
+    }
+    /* 细滚动条 */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #E5E0D5; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #C4B8A0; }
+
+    /* 全局过渡动画 */
+    .card-hover { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+    .card-hover:hover { transform: translateY(-2px); }
+
+    /* Flash 消息自动淡出 */
+    @keyframes flash-fade {
+      0%, 80% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-8px); }
+    }
+    .flash-auto-hide {
+      animation: flash-fade 4s ease forwards;
+    }
+
+    /* Toast 通知 */
+    #toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .toast-item {
+      background: #fff;
+      border: 1px solid #E5E0D5;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(61,61,61,0.08);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      animation: toast-in 0.3s ease;
+      max-width: 360px;
+    }
+    .toast-item.fade-out {
+      animation: toast-out 0.3s ease forwards;
+    }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toast-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(12px); } }
+
+    /* 搜索历史下拉 */
+    .search-history { display: none; }
+    .search-history.active { display: block; }
+  </style>
+  {% block head_extra %}{% endblock %}
+</head>
+<body class="min-h-screen bg-washi text-ink">
+
+  {# Toast 通知容器 #}
+  <div id="toast-container"></div>
+
+  {# 顶部导航栏 #}
+  <header class="bg-washi border-b border-border">
+    <div class="max-w-5xl mx-auto px-8 py-5 flex items-center justify-between">
+      <a href="{{ url_for('books.index') }}" class="flex items-center gap-3 group">
+        <span class="text-2xl font-serif font-medium tracking-wide text-ink group-hover:text-matcha transition-colors">本棚</span>
+        <span class="text-xs text-warm tracking-widest uppercase">bookshelf</span>
+      </a>
+
+      <nav class="flex items-center gap-6 text-sm">
+        <a href="{{ url_for('books.index') }}" class="text-ink hover:text-matcha transition-colors flex items-center gap-1.5">
+          <i data-lucide="library" class="w-4 h-4"></i><span>书架</span>
+        </a>
+        <a href="{{ url_for('books.new') }}" class="text-ink hover:text-matcha transition-colors flex items-center gap-1.5">
+          <i data-lucide="plus-circle" class="w-4 h-4"></i><span>添加</span>
+        </a>
+        <a href="{{ url_for('books.search') }}" class="text-ink hover:text-matcha transition-colors flex items-center gap-1.5">
+          <i data-lucide="search" class="w-4 h-4"></i><span>搜索</span>
+        </a>
+        <a href="{{ url_for('stats.index') }}" class="text-ink hover:text-matcha transition-colors flex items-center gap-1.5">
+          <i data-lucide="bar-chart-3" class="w-4 h-4"></i><span>统计</span>
+        </a>
+        <a href="{{ url_for('shelves.index') }}" class="text-ink hover:text-matcha transition-colors flex items-center gap-1.5">
+          <i data-lucide="list" class="w-4 h-4"></i><span>书单</span>
+        </a>
+        <a href="{{ url_for('translate.settings_page') }}" class="text-ink hover:text-matcha transition-colors flex items-center gap-1.5">
+          <i data-lucide="settings" class="w-4 h-4"></i><span>设置</span>
+        </a>
+
+        {# 导出/导入下拉 #}
+        <div class="relative group">
+          <button type="button" class="text-ink hover:text-matcha transition-colors flex items-center gap-1.5">
+            <i data-lucide="download" class="w-4 h-4"></i><span>导出</span>
+            <i data-lucide="chevron-down" class="w-3 h-3"></i>
+          </button>
+          <div class="absolute right-0 top-full mt-1 hidden group-hover:block z-20">
+            <div class="bg-white border border-border rounded-lg shadow-soft py-1.5 min-w-[160px]">
+              <a href="{{ url_for('books.export_json') }}"
+                 class="block px-4 py-2 text-sm text-ink hover:bg-cream whitespace-nowrap">JSON 备份</a>
+              <a href="{{ url_for('books.export_csv') }}"
+                 class="block px-4 py-2 text-sm text-ink hover:bg-cream whitespace-nowrap">CSV 表格</a>
+              <div class="border-t border-border my-1"></div>
+              <button type="button" id="import-json-btn"
+                      class="w-full text-left block px-4 py-2 text-sm text-ink hover:bg-cream whitespace-nowrap">
+                导入 JSON
+              </button>
+              <input type="file" id="import-json-file" accept=".json" class="hidden" />
+            </div>
+          </div>
+        </div>
+      </nav>
+    </div>
+
+    {# 全局搜索栏 #}
+    {% block search_bar %}
+    <div class="max-w-5xl mx-auto px-8 pb-4">
+      <form action="{{ url_for('books.search') }}" method="get" class="relative" id="search-form">
+        <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-warm pointer-events-none"></i>
+        <input type="text" name="q" id="global-search-input" value="{{ request.args.get('q', '') }}" placeholder="搜索书名、作者、出版社或笔记内容…"
+               class="w-full pl-10 pr-4 py-2.5 text-sm bg-white border border-border rounded-lg placeholder:text-warm/70"
+               autocomplete="off" />
+        {# 搜索历史下拉 #}
+        <div id="search-history" class="search-history absolute left-0 right-0 top-full mt-1 bg-white border border-border rounded-lg shadow-soft z-30 py-1">
+        </div>
+      </form>
+    </div>
+    {% endblock %}
+  </header>
+
+  {# Flash 消息区 #}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="max-w-5xl mx-auto px-8 pt-6">
+        {% for category, msg in messages %}
+          {% set bg = 'bg-matcha/20 border-matcha text-ink' if category == 'success' else ('bg-sakura/20 border-sakura text-ink' if category == 'error' else 'bg-cream border-border text-ink') %}
+          <div class="border {{ bg }} rounded-lg px-4 py-3 text-sm flex items-center gap-2 mb-3 flash-auto-hide">
+            <i data-lucide="{{ 'check-circle' if category == 'success' else ('alert-circle' if category == 'error' else 'info') }}" class="w-4 h-4"></i>
+            <span>{{ msg }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  {# 主体内容 #}
+  <main class="{% block main_class %}max-w-5xl mx-auto px-8 py-10{% endblock %}">
+    {% block content %}{% endblock %}
+  </main>
+
+  {# 页脚 #}
+  <footer class="border-t border-border mt-20">
+    <div class="max-w-5xl mx-auto px-8 py-6 text-center text-xs text-warm">
+      <p class="font-serif">— 一书一世界 —</p>
+      <p class="mt-1">© 本棚 · 个人图书管理</p>
+    </div>
+  </footer>
+
+  <script>
+    // 激活 Lucide 图标
+    if (window.lucide) { lucide.createIcons(); }
+
+    // ---------- Toast 工具函数 ----------
+    window.showToast = function (msg, opts) {
+      opts = opts || {};
+      var container = document.getElementById('toast-container');
+      var item = document.createElement('div');
+      item.className = 'toast-item';
+      item.innerHTML = '<span>' + msg + '</span>';
+      if (opts.action) {
+        var btn = document.createElement('button');
+        btn.className = 'text-sm text-matcha hover:underline font-medium ml-2 whitespace-nowrap';
+        btn.textContent = opts.actionLabel || '撤销';
+        btn.addEventListener('click', function () {
+          opts.action();
+          item.classList.add('fade-out');
+          setTimeout(function () { item.remove(); }, 300);
+        });
+        item.appendChild(btn);
+      }
+      container.appendChild(item);
+      var dur = opts.duration || 5000;
+      setTimeout(function () {
+        item.classList.add('fade-out');
+        setTimeout(function () { item.remove(); }, 300);
+      }, dur);
+    };
+
+    // ---------- 搜索历史 ----------
+    (function () {
+      var input = document.getElementById('global-search-input');
+      var historyBox = document.getElementById('search-history');
+      var form = document.getElementById('search-form');
+      if (!input || !historyBox || !form) return;
+      var STORAGE_KEY = 'bookshelf:search:history';
+      var MAX_HISTORY = 5;
+
+      function getHistory() {
+        try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch (e) { return []; }
+      }
+      function saveHistory(list) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(list.slice(0, MAX_HISTORY)));
+      }
+      function addHistory(q) {
+        q = q.trim();
+        if (!q) return;
+        var list = getHistory().filter(function (x) { return x !== q; });
+        list.unshift(q);
+        saveHistory(list);
+      }
+      function renderHistory() {
+        var list = getHistory();
+        if (!list.length) { historyBox.classList.remove('active'); return; }
+        historyBox.innerHTML = '<p class="px-3 py-1 text-xs text-warm">最近搜索</p>';
+        list.forEach(function (q) {
+          var a = document.createElement('a');
+          a.href = form.action + '?q=' + encodeURIComponent(q);
+          a.className = 'block px-3 py-2 text-sm text-ink hover:bg-cream truncate';
+          a.textContent = q;
+          historyBox.appendChild(a);
+        });
+        historyBox.classList.add('active');
+      }
+      input.addEventListener('focus', renderHistory);
+      input.addEventListener('blur', function () {
+        setTimeout(function () { historyBox.classList.remove('active'); }, 200);
+      });
+      form.addEventListener('submit', function () {
+        addHistory(input.value);
+      });
+    })();
+
+    // ---------- 全局快捷键 ----------
+    document.addEventListener('keydown', function (e) {
+      // 忽略输入框/textarea
+      var tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+        // Ctrl+K 仍然可以聚焦搜索
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+          e.preventDefault();
+          var si = document.getElementById('global-search-input');
+          if (si) si.focus();
+        }
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        var si2 = document.getElementById('global-search-input');
+        if (si2) si2.focus();
+      }
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        var si3 = document.getElementById('global-search-input');
+        if (si3) si3.focus();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+        e.preventDefault();
+        window.location.href = "{{ url_for('books.new') }}";
+      }
+    });
+
+    // ---------- 导入 JSON ----------
+    (function () {
+      var btn = document.getElementById('import-json-btn');
+      var fileInput = document.getElementById('import-json-file');
+      if (!btn || !fileInput) return;
+      btn.addEventListener('click', function () { fileInput.click(); });
+      fileInput.addEventListener('change', function () {
+        var file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function (ev) {
+          try {
+            JSON.parse(ev.target.result);
+          } catch (e) {
+            alert('无效的 JSON 文件');
+            return;
+          }
+          if (!confirm('确认从 JSON 文件导入书籍数据？已有书籍不会重复导入。')) return;
+          fetch('/import.json', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: ev.target.result,
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (data.error) { alert('导入失败: ' + data.error); return; }
+              window.showToast('成功导入 ' + (data.imported || 0) + ' 本书');
+              setTimeout(function () { window.location.reload(); }, 1500);
+            })
+            .catch(function (e) { alert('导入失败: ' + (e.message || e)); });
+        };
+        reader.readAsText(file);
+        fileInput.value = '';
+      });
+    })();
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

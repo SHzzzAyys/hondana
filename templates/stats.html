@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+
+{% block title %}阅读统计 · 本棚{% endblock %}
+
+{% block search_bar %}{% endblock %}
+
+{% block content %}
+
+<section class="mb-10">
+  <h1 class="text-3xl font-serif font-medium text-ink mb-1">阅读统计</h1>
+  <p class="text-sm text-warm">用数据记录你的阅读轨迹</p>
+</section>
+
+{# 数字卡片 #}
+<section class="grid grid-cols-2 md:grid-cols-4 gap-5 mb-10">
+  {% for card in summary_cards %}
+    <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+      <div class="flex items-center justify-between mb-3">
+        <span class="text-xs text-warm">{{ card.label }}</span>
+        <i data-lucide="{{ card.icon }}" class="w-4 h-4 text-warm/70"></i>
+      </div>
+      <p class="font-serif text-3xl text-ink">{{ card.value }}</p>
+    </div>
+  {% endfor %}
+</section>
+
+{# 阅读时长 + 目标 #}
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+  {# 阅读时长 #}
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <h3 class="font-serif text-lg text-ink mb-4 flex items-center gap-2">
+      <i data-lucide="clock" class="w-4 h-4 text-warm"></i>
+      <span>阅读时长</span>
+    </h3>
+    <div class="grid grid-cols-3 gap-4 text-center">
+      <div>
+        <p class="text-xs text-warm mb-1">本周</p>
+        <p class="font-serif text-xl text-ink">{{ weekly_reading_seconds|reading_time_fmt }}</p>
+      </div>
+      <div>
+        <p class="text-xs text-warm mb-1">本月</p>
+        <p class="font-serif text-xl text-ink">{{ monthly_reading_seconds|reading_time_fmt }}</p>
+      </div>
+      <div>
+        <p class="text-xs text-warm mb-1">总计</p>
+        <p class="font-serif text-xl text-ink">{{ total_reading_seconds|reading_time_fmt }}</p>
+      </div>
+    </div>
+  </div>
+
+  {# 阅读目标 #}
+  {% if reading_goal > 0 %}
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <h3 class="font-serif text-lg text-ink mb-4 flex items-center gap-2">
+      <i data-lucide="target" class="w-4 h-4 text-warm"></i>
+      <span>{{ current_year }} 年度目标</span>
+    </h3>
+    <div class="flex items-center gap-6">
+      <div class="relative w-24 h-24">
+        {% set goal_pct = ((finished_this_year / reading_goal * 100) | round) if reading_goal > 0 else 0 %}
+        {% set goal_pct_capped = [goal_pct, 100] | min %}
+        <svg viewBox="0 0 36 36" class="w-24 h-24 transform -rotate-90">
+          <circle cx="18" cy="18" r="15.9" fill="none" stroke="#E5E0D5" stroke-width="2.5"/>
+          <circle cx="18" cy="18" r="15.9" fill="none" stroke="#A8C8B8" stroke-width="2.5"
+                  stroke-dasharray="{{ goal_pct_capped }}, 100"
+                  stroke-linecap="round"/>
+        </svg>
+        <div class="absolute inset-0 flex items-center justify-center">
+          <span class="font-serif text-lg text-ink">{{ goal_pct }}%</span>
+        </div>
+      </div>
+      <div>
+        <p class="text-2xl font-serif text-ink">{{ finished_this_year }} / {{ reading_goal }}</p>
+        <p class="text-sm text-warm mt-1">
+          {% if finished_this_year >= reading_goal %}
+            已完成目标
+          {% else %}
+            还差 {{ reading_goal - finished_this_year }} 本
+          {% endif %}
+        </p>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6 flex flex-col items-center justify-center">
+    <i data-lucide="target" class="w-8 h-8 text-warm/50 mb-3"></i>
+    <p class="text-sm text-warm mb-2">还未设置阅读目标</p>
+    <a href="{{ url_for('translate.settings_page') }}"
+       class="text-xs text-matcha hover:underline">前往设置</a>
+  </div>
+  {% endif %}
+</section>
+
+{% if has_data %}
+{# 图表网格 #}
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+  {# 状态占比 #}
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <h3 class="font-serif text-lg text-ink mb-1 flex items-center gap-2">
+      <i data-lucide="pie-chart" class="w-4 h-4 text-warm"></i>
+      <span>阅读状态占比</span>
+    </h3>
+    <p class="text-xs text-warm mb-4">未读 · 在读 · 已读</p>
+    <div id="chart-status" class="h-64"></div>
+  </div>
+
+  {# 评分分布 #}
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <h3 class="font-serif text-lg text-ink mb-1 flex items-center gap-2">
+      <i data-lucide="star" class="w-4 h-4 text-warm"></i>
+      <span>评分分布</span>
+    </h3>
+    <p class="text-xs text-warm mb-4">1-5 星的书籍数量</p>
+    <div id="chart-rating" class="h-64"></div>
+  </div>
+
+  {# 年度阅读 #}
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <h3 class="font-serif text-lg text-ink mb-1 flex items-center gap-2">
+      <i data-lucide="calendar" class="w-4 h-4 text-warm"></i>
+      <span>年度已读</span>
+    </h3>
+    <p class="text-xs text-warm mb-4">每年读完的书籍数量</p>
+    <div id="chart-yearly" class="h-64"></div>
+    {% if not chart_data.yearly.years %}
+      <p class="text-center text-xs text-warm italic">暂无已读书籍</p>
+    {% endif %}
+  </div>
+
+  {# 标签 Top #}
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <h3 class="font-serif text-lg text-ink mb-1 flex items-center gap-2">
+      <i data-lucide="tags" class="w-4 h-4 text-warm"></i>
+      <span>热门标签 Top 10</span>
+    </h3>
+    <p class="text-xs text-warm mb-4">书籍最多的类别</p>
+    <div id="chart-tags" class="h-64"></div>
+    {% if not chart_data.tags.names %}
+      <p class="text-center text-xs text-warm italic">添加书籍时打上标签</p>
+    {% endif %}
+  </div>
+
+  {# 阅读时长排行 #}
+  {% if chart_data.reading_time.names %}
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6 md:col-span-2">
+    <h3 class="font-serif text-lg text-ink mb-1 flex items-center gap-2">
+      <i data-lucide="timer" class="w-4 h-4 text-warm"></i>
+      <span>阅读时长排行 Top 10</span>
+    </h3>
+    <p class="text-xs text-warm mb-4">阅读时间最长的书籍（小时）</p>
+    <div id="chart-reading-time" class="h-64"></div>
+  </div>
+  {% endif %}
+
+</section>
+{% else %}
+  <div class="py-20 text-center bg-white border border-border rounded-lg">
+    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-cream mb-4">
+      <i data-lucide="bar-chart-3" class="w-7 h-7 text-warm"></i>
+    </div>
+    <p class="font-serif text-lg text-ink mb-1">还没有可统计的数据</p>
+    <p class="text-sm text-warm mb-6">先添加几本书，这里会自动生成图表</p>
+    <a href="{{ url_for('books.new') }}"
+       class="inline-flex items-center gap-2 px-5 py-2.5 text-sm border border-matcha text-ink rounded-lg hover:bg-matcha/20 transition-colors">
+      <i data-lucide="plus" class="w-4 h-4"></i><span>添加书籍</span>
+    </a>
+  </div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{% if has_data %}
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+<script>
+  const chartData = {{ chart_data|tojson }};
+  const { renderStatusChart, renderYearlyChart, renderTagsChart, renderRatingChart, renderReadingTimeChart } = window.BookCharts;
+
+  if (chartData.status.some(d => d.value > 0)) {
+    renderStatusChart(document.getElementById('chart-status'), chartData.status);
+  }
+  if (chartData.yearly.years.length) {
+    renderYearlyChart(document.getElementById('chart-yearly'), chartData.yearly.years, chartData.yearly.counts);
+  }
+  if (chartData.tags.names.length) {
+    renderTagsChart(document.getElementById('chart-tags'), chartData.tags.names, chartData.tags.counts);
+  }
+  if (chartData.rating.counts.some(c => c > 0)) {
+    renderRatingChart(document.getElementById('chart-rating'), chartData.rating.labels, chartData.rating.counts);
+  }
+  if (chartData.reading_time && chartData.reading_time.names.length) {
+    var el = document.getElementById('chart-reading-time');
+    if (el) renderReadingTimeChart(el, chartData.reading_time.names, chartData.reading_time.hours);
+  }
+</script>
+{% endif %}
+{% endblock %}

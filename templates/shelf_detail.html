@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}{{ shelf.name }} · 书单 · 本棚{% endblock %}
+{% block search_bar %}{% endblock %}
+
+{% set status_badge = {
+  'unread':   'bg-border/60 text-warm',
+  'reading':  'bg-matcha/30 text-ink',
+  'finished': 'bg-sakura/30 text-ink',
+} %}
+{% set status_label_map = {'unread':'未读', 'reading':'在读', 'finished':'已读'} %}
+
+{% block content %}
+
+<a href="{{ url_for('shelves.index') }}"
+   class="text-sm text-warm hover:text-ink flex items-center gap-1 mb-6">
+  <i data-lucide="arrow-left" class="w-4 h-4"></i><span>返回书单列表</span>
+</a>
+
+<section class="mb-8">
+  <div class="flex items-start justify-between gap-4 flex-wrap">
+    <div>
+      <h1 class="text-3xl font-serif font-medium text-ink mb-1">{{ shelf.name }}</h1>
+      {% if shelf.description %}
+        <p class="text-sm text-warm">{{ shelf.description }}</p>
+      {% endif %}
+      <p class="text-xs text-warm mt-2">{{ shelf.books|length }} 本书 · 创建于 {{ shelf.created_at.strftime('%Y-%m-%d') }}</p>
+    </div>
+    <form method="post" action="{{ url_for('shelves.delete', shelf_id=shelf.id) }}"
+          onsubmit="return confirm('确认删除书单「{{ shelf.name }}」？');">
+      <button type="submit"
+              class="px-3 py-1.5 text-sm border border-sakura text-sakura rounded-lg hover:bg-sakura/15 transition-colors flex items-center gap-1.5">
+        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i><span>删除书单</span>
+      </button>
+    </form>
+  </div>
+</section>
+
+{# 添加书籍 #}
+{% if available_books %}
+<div class="bg-white border border-border rounded-lg shadow-soft p-5 mb-8">
+  <p class="text-sm text-ink font-medium mb-3">添加书籍到此书单</p>
+  <form method="post" action="{{ url_for('shelves.add_book', shelf_id=shelf.id) }}" class="flex gap-2">
+    <select name="book_id" class="flex-1 px-3 py-2 text-sm bg-white border border-border rounded-lg">
+      {% for book in available_books %}
+        <option value="{{ book.id }}">{{ book.title }} — {{ book.author }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit"
+            class="px-4 py-2 text-sm border border-matcha text-ink rounded-lg hover:bg-matcha/25 transition-colors flex items-center gap-1.5">
+      <i data-lucide="plus" class="w-4 h-4"></i><span>添加</span>
+    </button>
+  </form>
+</div>
+{% endif %}
+
+{# 书籍列表 #}
+{% if shelf.books %}
+  <div class="space-y-4">
+    {% for book in shelf.books %}
+      <div class="group grid grid-cols-[72px_1fr_auto] gap-4 bg-white border border-border rounded-lg shadow-soft overflow-hidden items-center p-4 hover:shadow-md transition-all">
+        <a href="{{ url_for('books.detail', book_id=book.id) }}">
+          <div class="aspect-[3/4] bg-cream rounded overflow-hidden flex items-center justify-center">
+            {% if book.cover_url %}
+              <img src="{{ book.cover_url }}" alt="" class="w-full h-full object-cover" />
+            {% elif book.epub_filename %}
+              <img src="{{ url_for('books.extracted_cover', book_id=book.id) }}" alt="" class="w-full h-full object-cover"
+                   onerror="this.onerror=null;this.style.display='none';" />
+            {% else %}
+              <span class="font-serif text-2xl text-warm/40 select-none">{{ book.title[0] if book.title else '书' }}</span>
+            {% endif %}
+          </div>
+        </a>
+        <div>
+          <a href="{{ url_for('books.detail', book_id=book.id) }}" class="hover:text-matcha transition-colors">
+            <h3 class="font-serif text-base text-ink">{{ book.title }}</h3>
+          </a>
+          <p class="text-xs text-warm">{{ book.author }}</p>
+          <span class="inline-block text-xs px-2 py-0.5 rounded-full {{ status_badge.get(book.status, 'bg-border text-warm') }} mt-1">
+            {{ status_label_map.get(book.status, book.status) }}
+          </span>
+        </div>
+        <form method="post" action="{{ url_for('shelves.remove_book', shelf_id=shelf.id) }}">
+          <input type="hidden" name="book_id" value="{{ book.id }}" />
+          <button type="submit"
+                  class="opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 text-xs text-warm hover:text-sakura flex items-center gap-1">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i><span>移除</span>
+          </button>
+        </form>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="py-16 text-center">
+    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-cream mb-4">
+      <i data-lucide="book-open" class="w-7 h-7 text-warm"></i>
+    </div>
+    <p class="font-serif text-lg text-ink mb-1">书单里还是空的</p>
+    <p class="text-sm text-warm">从上方添加一些书籍吧</p>
+  </div>
+{% endif %}
+
+{% endblock %}

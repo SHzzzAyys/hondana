@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}搜索「{{ query }}」· 本棚{% endblock %}
+
+{% set status_badge = {
+  'unread':   'bg-border/60 text-warm',
+  'reading':  'bg-matcha/30 text-ink',
+  'finished': 'bg-sakura/30 text-ink',
+} %}
+{% set status_label_map = {'unread':'未读', 'reading':'在读', 'finished':'已读'} %}
+
+{% block content %}
+
+<section class="mb-8">
+  <h1 class="text-3xl font-serif font-medium text-ink mb-1">搜索结果</h1>
+  {% if query %}
+    <div class="flex items-center justify-between flex-wrap gap-3">
+      <p class="text-sm text-warm">
+        关键词 <span class="text-ink font-medium">「{{ query }}」</span>
+        {% if results %}· 共 <span class="text-ink font-medium">{{ results|length }}</span> 本书匹配{% endif %}
+      </p>
+      {% if results %}
+      <div class="flex items-center gap-2">
+        <label class="text-xs text-warm">排序</label>
+        <select id="search-sort" class="text-xs px-2 py-1 bg-white border border-border rounded-lg">
+          <option value="relevance" {% if sort == 'relevance' %}selected{% endif %}>相关度</option>
+          <option value="time" {% if sort == 'time' %}selected{% endif %}>时间</option>
+        </select>
+      </div>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="text-sm text-warm">在顶部搜索栏输入关键词开始检索</p>
+  {% endif %}
+</section>
+
+{% if query and results %}
+  <div class="space-y-5">
+    {% for item in results %}
+      {% set book = item.book %}
+      <a href="{{ url_for('books.detail', book_id=book.id) }}"
+         class="group grid grid-cols-[88px_1fr] gap-5 bg-white border border-border rounded-lg shadow-soft card-hover hover:shadow-md transition-all overflow-hidden">
+        <div class="bg-cream flex items-center justify-center aspect-[3/4]">
+          {% if book.cover_url %}
+            <img src="{{ book.cover_url }}" alt="" class="w-full h-full object-cover" />
+          {% elif book.epub_filename %}
+            <img src="{{ url_for('books.extracted_cover', book_id=book.id) }}" alt="" class="w-full h-full object-cover"
+                 onerror="this.onerror=null;this.style.display='none';" />
+          {% else %}
+            <span class="font-serif text-3xl text-warm/40 select-none">{{ book.title[0] if book.title else '书' }}</span>
+          {% endif %}
+        </div>
+        <div class="py-4 pr-5">
+          <div class="flex items-start justify-between gap-3 mb-1">
+            <h3 class="font-serif text-lg text-ink group-hover:text-matcha transition-colors">
+              {{ book.title|highlight(query) }}
+            </h3>
+            <span class="shrink-0 text-xs px-2 py-0.5 rounded-full {{ status_badge.get(book.status, 'bg-border text-warm') }}">
+              {{ status_label_map.get(book.status, book.status) }}
+            </span>
+          </div>
+          <p class="text-xs text-warm">{{ book.author|highlight(query) }}</p>
+
+          {% if book.publisher %}
+            <p class="text-xs text-warm mt-0.5">{{ book.publisher|highlight(query) }}</p>
+          {% endif %}
+
+          {% if item.hit_types %}
+            <div class="mt-2 flex flex-wrap gap-1.5">
+              {% for h in item.hit_types %}
+                <span class="text-xs px-2 py-0.5 rounded-full bg-matcha/20 text-ink/80">{{ h }}匹配</span>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          {% if item.note_snippets %}
+            <div class="mt-3 space-y-1.5">
+              {% for snip in item.note_snippets[:2] %}
+                <p class="text-sm text-ink/80 bg-cream/70 border-l-2 border-sakura/50 px-3 py-1.5 rounded leading-relaxed">
+                  {{ snip|highlight(query) }}
+                </p>
+              {% endfor %}
+              {% if item.note_snippets|length > 2 %}
+                <p class="text-xs text-warm">还有 {{ item.note_snippets|length - 2 }} 条匹配…</p>
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+{% elif query %}
+  <div class="py-20 text-center">
+    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-cream mb-4">
+      <i data-lucide="search-x" class="w-7 h-7 text-warm"></i>
+    </div>
+    <p class="font-serif text-lg text-ink mb-1">没有找到相关结果</p>
+    <p class="text-sm text-warm">试试更换关键词，或检查拼写是否正确</p>
+  </div>
+{% endif %}
+
+<script>
+(function () {
+  var sortSelect = document.getElementById('search-sort');
+  if (sortSelect) {
+    sortSelect.addEventListener('change', function () {
+      var url = new URL(window.location);
+      url.searchParams.set('sort', this.value);
+      window.location = url.toString();
+    });
+  }
+})();
+</script>
+
+{% endblock %}

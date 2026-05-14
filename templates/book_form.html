@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+
+{% block title %}
+  {% if mode == 'edit' %}编辑书籍{% else %}添加书籍{% endif %} · 本棚
+{% endblock %}
+
+{# 不显示全局搜索栏 #}
+{% block search_bar %}{% endblock %}
+
+{% set input_class = 'w-full px-3.5 py-2.5 text-sm bg-white border border-border rounded-lg placeholder:text-warm/60' %}
+{% set label_class = 'block text-sm text-ink mb-1.5 font-medium' %}
+{% set hint_class = 'text-xs text-warm mt-1' %}
+{% set error_class = 'text-xs text-sakura mt-1' %}
+
+{% block content %}
+<section class="mb-8">
+  <a href="{{ url_for('books.index') }}"
+     class="text-sm text-warm hover:text-ink flex items-center gap-1 mb-4">
+    <i data-lucide="arrow-left" class="w-4 h-4"></i><span>返回书架</span>
+  </a>
+  <h1 class="text-3xl font-serif font-medium text-ink">
+    {% if mode == 'edit' %}编辑书籍{% else %}添加一本书{% endif %}
+  </h1>
+  <p class="text-sm text-warm mt-1">
+    {% if mode == 'edit' %}更新书籍信息、状态与评分{% else %}让它成为书架上的一员吧{% endif %}
+  </p>
+</section>
+
+<form method="post" enctype="multipart/form-data" class="bg-white border border-border rounded-lg shadow-soft p-8 max-w-2xl">
+  <div class="mb-5">
+    <label class="{{ label_class }}" for="title">书名 <span class="text-sakura">*</span></label>
+    <input id="title" name="title" type="text" required value="{{ data.title }}" class="{{ input_class }}" placeholder="例如：挪威的森林" />
+    {% if errors.title %}<p class="{{ error_class }}">{{ errors.title }}</p>{% endif %}
+  </div>
+
+  <div class="mb-5">
+    <label class="{{ label_class }}" for="author">作者 <span class="text-sakura">*</span></label>
+    <input id="author" name="author" type="text" required value="{{ data.author }}" class="{{ input_class }}" placeholder="例如：村上春树" />
+    {% if errors.author %}<p class="{{ error_class }}">{{ errors.author }}</p>{% endif %}
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-5">
+    <div>
+      <label class="{{ label_class }}" for="isbn">ISBN</label>
+      <input id="isbn" name="isbn" type="text" value="{{ data.isbn }}" class="{{ input_class }}" placeholder="13 位 ISBN" />
+    </div>
+    <div>
+      <label class="{{ label_class }}" for="publisher">出版社</label>
+      <input id="publisher" name="publisher" type="text" value="{{ data.publisher }}" class="{{ input_class }}" placeholder="例如：上海译文出版社" />
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-5">
+    <div>
+      <label class="{{ label_class }}" for="publish_date">出版日期</label>
+      <input id="publish_date" name="publish_date" type="date" value="{{ data.publish_date_raw }}" class="{{ input_class }}" />
+    </div>
+    <div>
+      <label class="{{ label_class }}" for="cover_url">封面图片 URL</label>
+      <input id="cover_url" name="cover_url" type="url" value="{{ data.cover_url }}" class="{{ input_class }}" placeholder="https://..." />
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-5">
+    <div>
+      <label class="{{ label_class }}" for="status">阅读状态</label>
+      <select id="status" name="status" class="{{ input_class }}">
+        {% for val, label in status_choices %}
+          <option value="{{ val }}" {% if data.status == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="{{ label_class }}" for="rating">评分（1-5）</label>
+      <select id="rating" name="rating" class="{{ input_class }}">
+        <option value="">-- 暂不评分 --</option>
+        {% for r in [1, 2, 3, 4, 5] %}
+          <option value="{{ r }}" {% if data.rating_raw == r|string %}selected{% endif %}>
+            {{ '★' * r }}{{ '☆' * (5-r) }} ({{ r }} 分)
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <div class="mb-8">
+    <label class="{{ label_class }}" for="tags">标签</label>
+    <input id="tags" name="tags" type="text" value="{{ data.tags_raw }}" class="{{ input_class }}" placeholder="用逗号分隔，例如：文学, 随笔, 日本" />
+    <p class="{{ hint_class }}">支持中/英文逗号分隔，标签会自动去重和创建</p>
+  </div>
+
+  {# EPUB 上传 - 拖拽区域 #}
+  <div class="mb-8 pt-5 border-t border-border">
+    <label class="{{ label_class }}" for="epub_file">
+      EPUB 电子书 <span class="text-warm font-normal">（可选，≤ 100 MB）</span>
+    </label>
+
+    {% if mode == 'edit' and book and book.epub_filename %}
+      <div class="flex items-center gap-3 bg-cream border border-border rounded-lg px-3 py-2 mb-2">
+        <i data-lucide="book-open" class="w-4 h-4 text-matcha"></i>
+        <span class="text-sm text-ink truncate">{{ book.epub_filename }}</span>
+        <label class="ml-auto text-xs text-warm flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" name="remove_epub" value="1" class="rounded border-border" />
+          <span>移除此文件</span>
+        </label>
+      </div>
+      <p class="{{ hint_class }}">选择新文件上传将覆盖当前 EPUB</p>
+    {% endif %}
+
+    {# 拖拽上传区域 #}
+    <div id="epub-drop-zone"
+         class="relative border-2 border-dashed border-border rounded-lg p-8 text-center transition-colors hover:border-matcha cursor-pointer mb-2">
+      <i data-lucide="upload" class="w-8 h-8 text-warm mx-auto mb-2"></i>
+      <p class="text-sm text-ink mb-1">拖拽 EPUB 文件到此处</p>
+      <p class="text-xs text-warm">或点击选择文件</p>
+      <input id="epub_file" name="epub_file" type="file" accept=".epub,application/epub+zip"
+             class="absolute inset-0 opacity-0 cursor-pointer" />
+    </div>
+    <div id="epub-file-name" class="hidden text-sm text-ink flex items-center gap-2 mb-2">
+      <i data-lucide="file" class="w-4 h-4 text-matcha"></i>
+      <span id="epub-file-name-text"></span>
+    </div>
+    {% if errors.epub_file %}<p class="{{ error_class }}">{{ errors.epub_file }}</p>{% endif %}
+    <p class="{{ hint_class }}">上传后可在详情页点击「在线阅读」。选择文件后会自动识别书名、作者等信息。</p>
+
+    <div id="epub-meta-status" class="hidden mt-3 text-sm rounded-lg px-3 py-2 border"></div>
+  </div>
+
+  <div class="flex items-center gap-3 pt-5 border-t border-border">
+    <button type="submit"
+            class="px-6 py-2.5 text-sm border border-matcha text-ink rounded-lg hover:bg-matcha/25 transition-colors flex items-center gap-2">
+      <i data-lucide="check" class="w-4 h-4"></i>
+      <span>{% if mode == 'edit' %}保存修改{% else %}保存到书架{% endif %}</span>
+    </button>
+    <a href="{{ url_for('books.index') }}"
+       class="px-6 py-2.5 text-sm border border-border text-warm rounded-lg hover:bg-cream transition-colors">
+      取消
+    </a>
+  </div>
+</form>
+
+<script>
+(function () {
+  const fileInput = document.getElementById("epub_file");
+  const statusBox = document.getElementById("epub-meta-status");
+  const dropZone = document.getElementById("epub-drop-zone");
+  const fileNameBox = document.getElementById("epub-file-name");
+  const fileNameText = document.getElementById("epub-file-name-text");
+  if (!fileInput || !statusBox) return;
+
+  const apiUrl = "{{ url_for('books.api_epub_metadata') }}";
+  const targets = {
+    title:       document.getElementById("title"),
+    author:      document.getElementById("author"),
+    publisher:   document.getElementById("publisher"),
+    isbn:        document.getElementById("isbn"),
+    publish_date:document.getElementById("publish_date"),
+  };
+
+  function setStatus(text, variant) {
+    statusBox.classList.remove("hidden",
+      "bg-matcha/15","border-matcha","text-ink",
+      "bg-sakura/15","border-sakura",
+      "bg-cream","border-border","text-warm");
+    if (variant === "success") {
+      statusBox.classList.add("bg-matcha/15","border-matcha","text-ink");
+    } else if (variant === "error") {
+      statusBox.classList.add("bg-sakura/15","border-sakura","text-ink");
+    } else {
+      statusBox.classList.add("bg-cream","border-border","text-warm");
+    }
+    statusBox.textContent = text;
+  }
+
+  function handleFile(file) {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".epub")) {
+      setStatus("只支持 .epub 文件", "error");
+      return;
+    }
+    // 显示文件名
+    fileNameText.textContent = file.name;
+    fileNameBox.classList.remove("hidden");
+
+    setStatus("正在从 EPUB 识别书名、作者等信息…", "info");
+    var fd = new FormData();
+    fd.append("epub_file", file);
+    fetch(apiUrl, { method: "POST", body: fd, credentials: "same-origin" })
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (meta) {
+        var filled = [];
+        function maybeFill(key, value) {
+          var el = targets[key]; if (!el || !value) return;
+          if (el.value && el.value.trim() !== "") return;
+          el.value = value; filled.push(key);
+        }
+        maybeFill("title", meta.title);
+        maybeFill("author", meta.author);
+        maybeFill("publisher", meta.publisher);
+        maybeFill("isbn", meta.isbn);
+        maybeFill("publish_date", meta.date);
+        var labels = { title: "书名", author: "作者", publisher: "出版社", isbn: "ISBN", publish_date: "出版日期" };
+        var coverHint = meta.has_cover ? ",并已提取封面" : "";
+        if (filled.length) {
+          setStatus("✓ 自动填入：" + filled.map(function (k) { return labels[k]; }).join("、") + coverHint, "success");
+        } else {
+          setStatus("已识别 EPUB 元数据" + coverHint + "(现有字段不为空,未覆盖)", "info");
+        }
+      })
+      .catch(function (err) { setStatus("自动识别失败:" + (err.message || err), "error"); });
+  }
+
+  fileInput.addEventListener("change", function () {
+    handleFile(fileInput.files && fileInput.files[0]);
+  });
+
+  // 拖拽上传
+  dropZone.addEventListener("dragover", function (e) {
+    e.preventDefault();
+    dropZone.classList.add("border-matcha", "bg-matcha/5");
+  });
+  dropZone.addEventListener("dragleave", function (e) {
+    e.preventDefault();
+    dropZone.classList.remove("border-matcha", "bg-matcha/5");
+  });
+  dropZone.addEventListener("drop", function (e) {
+    e.preventDefault();
+    dropZone.classList.remove("border-matcha", "bg-matcha/5");
+    var files = e.dataTransfer && e.dataTransfer.files;
+    if (files && files.length) {
+      // 将拖入的文件设置到 file input
+      var dt = new DataTransfer();
+      dt.items.add(files[0]);
+      fileInput.files = dt.files;
+      handleFile(files[0]);
+    }
+  });
+
+  // 从书架拖入的 EPUB(sessionStorage)
+  try {
+    var dropName = sessionStorage.getItem('bookshelf:drop-epub-name');
+    var dropData = sessionStorage.getItem('bookshelf:drop-epub-data');
+    if (dropName && dropData) {
+      sessionStorage.removeItem('bookshelf:drop-epub-name');
+      sessionStorage.removeItem('bookshelf:drop-epub-data');
+      // 将 data URL 转换为 File
+      fetch(dropData)
+        .then(function (r) { return r.blob(); })
+        .then(function (blob) {
+          var file = new File([blob], dropName, { type: 'application/epub+zip' });
+          var dt = new DataTransfer();
+          dt.items.add(file);
+          fileInput.files = dt.files;
+          handleFile(file);
+        });
+    }
+  } catch (e) {}
+})();
+</script>
+{% endblock %}

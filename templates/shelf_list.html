@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}我的书单 · 本棚{% endblock %}
+{% block search_bar %}{% endblock %}
+
+{% block content %}
+
+<section class="mb-8">
+  <h1 class="text-3xl font-serif font-medium text-ink mb-1">我的书单</h1>
+  <p class="text-sm text-warm">用书单整理你的阅读主题</p>
+</section>
+
+{# 新建书单表单 #}
+<div class="bg-white border border-border rounded-lg shadow-soft p-6 mb-8 max-w-xl">
+  <h2 class="font-serif text-lg text-ink mb-4">创建新书单</h2>
+  <form method="post" action="{{ url_for('shelves.create') }}" class="space-y-3">
+    <input name="name" type="text" required
+           placeholder="书单名称，例如：年度必读"
+           class="w-full px-3.5 py-2.5 text-sm bg-white border border-border rounded-lg placeholder:text-warm/60" />
+    <input name="description" type="text"
+           placeholder="简短描述（可选）"
+           class="w-full px-3.5 py-2.5 text-sm bg-white border border-border rounded-lg placeholder:text-warm/60" />
+    <button type="submit"
+            class="px-5 py-2 text-sm border border-matcha text-ink rounded-lg hover:bg-matcha/25 transition-colors flex items-center gap-2">
+      <i data-lucide="plus" class="w-4 h-4"></i>
+      <span>创建</span>
+    </button>
+  </form>
+</div>
+
+{# 书单列表 #}
+{% if shelves %}
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+    {% for shelf in shelves %}
+      <a href="{{ url_for('shelves.detail', shelf_id=shelf.id) }}"
+         class="group block bg-white border border-border rounded-lg shadow-soft hover:shadow-md transition-all p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <i data-lucide="list" class="w-4 h-4 text-matcha"></i>
+          <h3 class="font-serif text-lg text-ink group-hover:text-matcha transition-colors">{{ shelf.name }}</h3>
+        </div>
+        {% if shelf.description %}
+          <p class="text-sm text-warm mb-3">{{ shelf.description }}</p>
+        {% endif %}
+        <div class="flex items-center gap-3 text-xs text-warm">
+          <span>{{ shelf.books|length }} 本书</span>
+          <span>{{ shelf.created_at.strftime('%Y-%m-%d') }}</span>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="py-16 text-center">
+    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-cream mb-4">
+      <i data-lucide="list" class="w-7 h-7 text-warm"></i>
+    </div>
+    <p class="font-serif text-lg text-ink mb-1">还没有书单</p>
+    <p class="text-sm text-warm">创建一个书单来分类整理你的藏书</p>
+  </div>
+{% endif %}
+
+{% endblock %}

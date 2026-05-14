@@ -1,0 +1,383 @@
+{% extends "base.html" %}
+
+{% block title %}书架 · 本棚{% endblock %}
+
+{# 状态 → Tailwind 徽标配色映射 #}
+{% set status_badge = {
+  'unread':   'bg-border/60 text-warm',
+  'reading':  'bg-matcha/30 text-ink',
+  'finished': 'bg-sakura/30 text-ink',
+} %}
+{% set status_label_map = {
+  'unread':   '未读',
+  'reading':  '在读',
+  'finished': '已读',
+} %}
+
+{% block content %}
+
+{# 页面标题 #}
+<section class="mb-8">
+  <h1 class="text-3xl font-serif font-medium text-ink mb-1">我的书架</h1>
+  {% if current_tag %}
+    <p class="text-sm text-warm">当前筛选标签 <span class="text-ink">「{{ current_tag }}」</span></p>
+  {% else %}
+    <p class="text-sm text-warm">记录每一本遇见的好书</p>
+  {% endif %}
+</section>
+
+{# "继续阅读" 快捷入口 #}
+{% if continue_book %}
+<section class="mb-8">
+  <a href="{{ url_for('books.read', book_id=continue_book.id) }}"
+     class="group block bg-white border border-matcha/30 rounded-lg shadow-soft hover:shadow-md transition-all p-5">
+    <div class="flex items-center gap-4">
+      <div class="w-12 h-16 bg-cream rounded overflow-hidden flex-shrink-0 flex items-center justify-center">
+        {% if continue_book.cover_url %}
+          <img src="{{ continue_book.cover_url }}" alt="" class="w-full h-full object-cover" />
+        {% elif continue_book.epub_filename %}
+          <img src="{{ url_for('books.extracted_cover', book_id=continue_book.id) }}" alt="" class="w-full h-full object-cover"
+               onerror="this.onerror=null;this.style.display='none';" />
+        {% else %}
+          <span class="font-serif text-lg text-warm/40">{{ continue_book.title[0] if continue_book.title else '书' }}</span>
+        {% endif %}
+      </div>
+      <div class="flex-1 min-w-0">
+        <p class="text-xs text-matcha mb-0.5 flex items-center gap-1">
+          <i data-lucide="book-open" class="w-3.5 h-3.5"></i>
+          <span>继续阅读</span>
+        </p>
+        <h3 class="font-serif text-base text-ink truncate group-hover:text-matcha transition-colors">{{ continue_book.title }}</h3>
+        <p class="text-xs text-warm">{{ continue_book.author }}
+          {% if continue_book.last_read_at %}
+            · {{ continue_book.last_read_at.strftime('%m月%d日 %H:%M') }}
+          {% endif %}
+        </p>
+        {% if continue_book.reading_progress is not none %}
+        <div class="mt-2 h-1 bg-border rounded-full overflow-hidden w-48">
+          <div class="h-full bg-matcha rounded-full" style="width:{{ (continue_book.reading_progress * 100)|round }}%"></div>
+        </div>
+        {% endif %}
+      </div>
+      <i data-lucide="arrow-right" class="w-5 h-5 text-warm group-hover:text-matcha transition-colors"></i>
+    </div>
+  </a>
+</section>
+{% endif %}
+
+{# 状态筛选 Tab #}
+<nav class="border-b border-border mb-8">
+  <div class="flex items-center gap-8 -mb-px text-sm">
+    {% set tabs = [
+      ('all',      '全部',   counts.all),
+      ('unread',   '未读',   counts.unread),
+      ('reading',  '在读',   counts.reading),
+      ('finished', '已读',   counts.finished),
+    ] %}
+    {% for key, label, cnt in tabs %}
+      {% set active = (current_status == key) %}
+      <a href="{{ url_for('books.index', status=key, tag=current_tag or None, sort=sort_by, order=order) }}"
+         class="pb-3 flex items-center gap-2 border-b-2 transition-colors
+                {% if active %}border-matcha text-ink font-medium{% else %}border-transparent text-warm hover:text-ink{% endif %}">
+        <span>{{ label }}</span>
+        <span class="text-xs px-1.5 py-0.5 rounded-full bg-cream text-warm">{{ cnt }}</span>
+      </a>
+    {% endfor %}
+  </div>
+</nav>
+
+{# 标签云 #}
+{% if tag_cloud %}
+<section class="mb-8">
+  <div class="flex items-center justify-between mb-3">
+    <p class="text-xs text-warm uppercase tracking-widest">标签</p>
+    {% if current_tag %}
+      <a href="{{ url_for('books.index', status=current_status if current_status != 'all' else None, sort=sort_by, order=order) }}"
+         class="text-xs text-warm hover:text-ink flex items-center gap-1">
+        <i data-lucide="x" class="w-3.5 h-3.5"></i><span>清除筛选</span>
+      </a>
+    {% endif %}
+  </div>
+  <div class="flex flex-wrap gap-2">
+    {% for t in tag_cloud %}
+      {% set active = (current_tag == t.name) %}
+      <a href="{{ url_for('books.index', status=current_status if current_status != 'all' else None, tag=t.name, sort=sort_by, order=order) }}"
+         class="text-xs px-3 py-1.5 rounded-full border transition-colors flex items-center gap-1.5
+                {% if active %}bg-sky/40 border-sky text-ink font-medium{% else %}bg-sky/20 border-transparent text-ink/80 hover:bg-sky/35{% endif %}">
+        <span>{{ t.name }}</span>
+        <span class="text-warm text-[10px]">{{ t.count }}</span>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{# 排序 + 视图切换 #}
+<section class="flex items-center justify-between mb-6 gap-4 flex-wrap">
+  <div class="flex items-center gap-2">
+    <label class="text-xs text-warm">排序</label>
+    <select id="sort-select" class="text-xs px-2 py-1 bg-white border border-border rounded-lg">
+      <option value="created_at:desc" {% if sort_by == 'created_at' and order == 'desc' %}selected{% endif %}>添加时间 ↓</option>
+      <option value="created_at:asc" {% if sort_by == 'created_at' and order == 'asc' %}selected{% endif %}>添加时间 ↑</option>
+      <option value="title:asc" {% if sort_by == 'title' and order == 'asc' %}selected{% endif %}>书名 A→Z</option>
+      <option value="title:desc" {% if sort_by == 'title' and order == 'desc' %}selected{% endif %}>书名 Z→A</option>
+      <option value="author:asc" {% if sort_by == 'author' and order == 'asc' %}selected{% endif %}>作者 A→Z</option>
+      <option value="rating:desc" {% if sort_by == 'rating' and order == 'desc' %}selected{% endif %}>评分 高→低</option>
+      <option value="last_read_at:desc" {% if sort_by == 'last_read_at' and order == 'desc' %}selected{% endif %}>最近阅读</option>
+    </select>
+  </div>
+  <div class="flex items-center gap-1" id="view-toggle">
+    <button type="button" data-view="grid" title="网格视图"
+            class="view-btn px-2 py-1.5 border border-border rounded-lg hover:bg-cream">
+      <i data-lucide="layout-grid" class="w-4 h-4"></i>
+    </button>
+    <button type="button" data-view="list" title="列表视图"
+            class="view-btn px-2 py-1.5 border border-border rounded-lg hover:bg-cream">
+      <i data-lucide="list" class="w-4 h-4"></i>
+    </button>
+    <button type="button" data-view="compact" title="紧凑视图"
+            class="view-btn px-2 py-1.5 border border-border rounded-lg hover:bg-cream">
+      <i data-lucide="rows-3" class="w-4 h-4"></i>
+    </button>
+  </div>
+</section>
+
+{# 书籍卡片网格 / 列表 / 紧凑 / 空状态 #}
+{% if books %}
+  {# 网格视图(默认) #}
+  <div id="books-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+    {% for book in books %}
+      <a href="{{ url_for('books.detail', book_id=book.id) }}"
+         class="group block bg-white border border-border rounded-lg shadow-soft card-hover hover:shadow-md transition-all overflow-hidden">
+        <div class="aspect-[3/4] bg-cream flex items-center justify-center overflow-hidden relative">
+          {% if book.cover_url %}
+            <img src="{{ book.cover_url }}" alt="{{ book.title }}" class="w-full h-full object-cover" />
+          {% elif book.epub_filename %}
+            <img src="{{ url_for('books.extracted_cover', book_id=book.id) }}"
+                 alt="{{ book.title }}"
+                 class="w-full h-full object-cover"
+                 onerror="this.onerror=null;this.style.display='none';" />
+            <span class="font-serif text-6xl text-warm/40 select-none absolute inset-0 flex items-center justify-center -z-0">{{ book.title[0] if book.title else '书' }}</span>
+          {% else %}
+            <span class="font-serif text-6xl text-warm/40 select-none">{{ book.title[0] if book.title else '书' }}</span>
+          {% endif %}
+          <span class="absolute top-3 right-3 text-xs px-2.5 py-1 rounded-full {{ status_badge.get(book.status, 'bg-border text-warm') }}">
+            {{ status_label_map.get(book.status, book.status) }}
+          </span>
+        </div>
+        <div class="p-5">
+          <h3 class="font-serif text-lg text-ink leading-tight line-clamp-2 group-hover:text-matcha transition-colors">
+            {{ book.title }}
+          </h3>
+          <p class="text-xs text-warm mt-1">{{ book.author }}</p>
+          {% if book.tags %}
+          <div class="mt-3 flex flex-wrap gap-1.5">
+            {% for tag in book.tags %}
+              <span class="text-xs px-2 py-0.5 rounded-full bg-sky/30 text-ink/80">{{ tag.name }}</span>
+            {% endfor %}
+          </div>
+          {% endif %}
+          {# 进度条 (在读书籍) #}
+          {% if book.status == 'reading' and book.reading_progress is not none %}
+          <div class="mt-3 h-1.5 bg-border rounded-full overflow-hidden">
+            <div class="h-full bg-matcha rounded-full transition-all" style="width:{{ (book.reading_progress * 100)|round }}%"></div>
+          </div>
+          {% endif %}
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+
+  {# 列表视图(默认隐藏) #}
+  <div id="books-list" class="hidden space-y-3">
+    {% for book in books %}
+      <a href="{{ url_for('books.detail', book_id=book.id) }}"
+         class="group grid grid-cols-[72px_1fr_auto] gap-4 bg-white border border-border rounded-lg shadow-soft card-hover hover:shadow-md transition-all p-4 items-center">
+        <div class="aspect-[3/4] bg-cream rounded overflow-hidden flex items-center justify-center">
+          {% if book.cover_url %}
+            <img src="{{ book.cover_url }}" alt="" class="w-full h-full object-cover" />
+          {% elif book.epub_filename %}
+            <img src="{{ url_for('books.extracted_cover', book_id=book.id) }}" alt="" class="w-full h-full object-cover"
+                 onerror="this.onerror=null;this.style.display='none';" />
+          {% else %}
+            <span class="font-serif text-2xl text-warm/40 select-none">{{ book.title[0] if book.title else '书' }}</span>
+          {% endif %}
+        </div>
+        <div>
+          <h3 class="font-serif text-base text-ink group-hover:text-matcha transition-colors">{{ book.title }}</h3>
+          <p class="text-xs text-warm">{{ book.author }}</p>
+          {% if book.rating %}<p class="text-xs text-sakura mt-0.5">{{ '★' * book.rating }}</p>{% endif %}
+          {% if book.status == 'reading' and book.reading_progress is not none %}
+          <div class="mt-1 h-1 bg-border rounded-full overflow-hidden w-32">
+            <div class="h-full bg-matcha rounded-full" style="width:{{ (book.reading_progress * 100)|round }}%"></div>
+          </div>
+          {% endif %}
+        </div>
+        <span class="text-xs px-2 py-0.5 rounded-full {{ status_badge.get(book.status, 'bg-border text-warm') }}">
+          {{ status_label_map.get(book.status, book.status) }}
+        </span>
+      </a>
+    {% endfor %}
+  </div>
+
+  {# 紧凑视图(默认隐藏) #}
+  <div id="books-compact" class="hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-border text-left text-xs text-warm">
+          <th class="pb-2">书名</th>
+          <th class="pb-2">作者</th>
+          <th class="pb-2">状态</th>
+          <th class="pb-2">评分</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-border/50">
+        {% for book in books %}
+        <tr class="hover:bg-cream/50 transition-colors">
+          <td class="py-2.5"><a href="{{ url_for('books.detail', book_id=book.id) }}" class="text-ink hover:text-matcha">{{ book.title }}</a></td>
+          <td class="py-2.5 text-warm">{{ book.author }}</td>
+          <td class="py-2.5"><span class="text-xs px-2 py-0.5 rounded-full {{ status_badge.get(book.status, 'bg-border text-warm') }}">{{ status_label_map.get(book.status, book.status) }}</span></td>
+          <td class="py-2.5 text-sakura">{% if book.rating %}{{ '★' * book.rating }}{% else %}<span class="text-warm">-</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# 分页导航 #}
+  {% if pagination.pages > 1 %}
+  <nav class="mt-10 flex items-center justify-center gap-2">
+    {% if pagination.has_prev %}
+      <a href="{{ url_for('books.index', page=pagination.prev_num, status=current_status, tag=current_tag or None, sort=sort_by, order=order) }}"
+         class="px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-cream text-ink">← 上一页</a>
+    {% endif %}
+    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+      {% if p %}
+        {% if p == pagination.page %}
+          <span class="px-3 py-1.5 text-sm border border-matcha bg-matcha/20 rounded-lg text-ink font-medium">{{ p }}</span>
+        {% else %}
+          <a href="{{ url_for('books.index', page=p, status=current_status, tag=current_tag or None, sort=sort_by, order=order) }}"
+             class="px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-cream text-ink">{{ p }}</a>
+        {% endif %}
+      {% else %}
+        <span class="px-2 text-warm">…</span>
+      {% endif %}
+    {% endfor %}
+    {% if pagination.has_next %}
+      <a href="{{ url_for('books.index', page=pagination.next_num, status=current_status, tag=current_tag or None, sort=sort_by, order=order) }}"
+         class="px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-cream text-ink">下一页 →</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+
+{% else %}
+  <div class="py-24 text-center">
+    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-cream mb-4">
+      <i data-lucide="book-open" class="w-7 h-7 text-warm"></i>
+    </div>
+    <p class="font-serif text-lg text-ink mb-2">书架还是空的</p>
+    <p class="text-sm text-warm mb-6">快添加第一本书，开启你的阅读记录吧</p>
+    <a href="{{ url_for('books.new') }}"
+       class="inline-flex items-center gap-2 px-5 py-2.5 text-sm border border-matcha text-ink rounded-lg hover:bg-matcha/20 transition-colors">
+      <i data-lucide="plus" class="w-4 h-4"></i>
+      <span>添加书籍</span>
+    </a>
+  </div>
+{% endif %}
+
+{# 拖拽上传遮罩 #}
+<div id="drop-overlay" class="hidden fixed inset-0 z-50 bg-matcha/10 border-4 border-dashed border-matcha flex items-center justify-center">
+  <div class="bg-white rounded-xl shadow-lg p-8 text-center">
+    <i data-lucide="upload" class="w-12 h-12 text-matcha mx-auto mb-3"></i>
+    <p class="font-serif text-lg text-ink mb-1">拖入 EPUB 文件</p>
+    <p class="text-sm text-warm">释放即可开始添加书籍</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  // ---- 排序切换 ----
+  var sortSelect = document.getElementById('sort-select');
+  if (sortSelect) {
+    sortSelect.addEventListener('change', function () {
+      var parts = this.value.split(':');
+      var url = new URL(window.location);
+      url.searchParams.set('sort', parts[0]);
+      url.searchParams.set('order', parts[1]);
+      url.searchParams.delete('page');
+      window.location = url.toString();
+    });
+  }
+
+  // ---- 视图模式切换 ----
+  var VIEW_KEY = 'bookshelf:view-mode';
+  var views = { grid: 'books-grid', list: 'books-list', compact: 'books-compact' };
+  var currentView = localStorage.getItem(VIEW_KEY) || 'grid';
+
+  function setView(mode) {
+    Object.keys(views).forEach(function (k) {
+      var el = document.getElementById(views[k]);
+      if (el) el.classList.toggle('hidden', k !== mode);
+    });
+    document.querySelectorAll('.view-btn').forEach(function (btn) {
+      var isActive = btn.dataset.view === mode;
+      btn.classList.toggle('bg-cream', isActive);
+      btn.classList.toggle('border-matcha', isActive);
+    });
+    localStorage.setItem(VIEW_KEY, mode);
+    currentView = mode;
+  }
+  setView(currentView);
+
+  document.querySelectorAll('.view-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () { setView(this.dataset.view); });
+  });
+
+  // ---- 拖拽上传 EPUB ----
+  var overlay = document.getElementById('drop-overlay');
+  var dragCounter = 0;
+
+  document.addEventListener('dragenter', function (e) {
+    e.preventDefault();
+    dragCounter++;
+    if (dragCounter === 1 && e.dataTransfer && e.dataTransfer.types.indexOf('Files') >= 0) {
+      overlay.classList.remove('hidden');
+    }
+  });
+  document.addEventListener('dragleave', function (e) {
+    e.preventDefault();
+    dragCounter--;
+    if (dragCounter <= 0) {
+      dragCounter = 0;
+      overlay.classList.add('hidden');
+    }
+  });
+  document.addEventListener('dragover', function (e) { e.preventDefault(); });
+  document.addEventListener('drop', function (e) {
+    e.preventDefault();
+    dragCounter = 0;
+    overlay.classList.add('hidden');
+    var files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || !files.length) return;
+    var file = files[0];
+    if (!file.name.toLowerCase().endsWith('.epub')) {
+      window.showToast && window.showToast('只支持 .epub 文件');
+      return;
+    }
+    // 跳转到新增页面，文件通过 sessionStorage 暂存
+    var reader = new FileReader();
+    reader.onload = function (ev) {
+      try {
+        sessionStorage.setItem('bookshelf:drop-epub-name', file.name);
+        sessionStorage.setItem('bookshelf:drop-epub-data', ev.target.result);
+        window.location.href = "{{ url_for('books.new') }}";
+      } catch (err) {
+        // sessionStorage 存不下大文件
+        window.showToast && window.showToast('文件太大，请使用添加页面上传');
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+})();
+</script>
+{% endblock %}
