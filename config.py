@@ -1,10 +1,13 @@
 """配置文件 - 个人图书管理系统"""
 import os
 
+# 默认开发值,启动时若仍是这个值会触发 SECRET_KEY 校验告警/拒绝(见 app._enforce_secret_key)
+DEFAULT_DEV_SECRET_KEY = "book-manager-dev-secret-change-me"
+
 
 class Config:
     """基础配置"""
-    SECRET_KEY = os.environ.get("SECRET_KEY", "book-manager-dev-secret-change-me")
+    SECRET_KEY = os.environ.get("SECRET_KEY", DEFAULT_DEV_SECRET_KEY)
 
     # 数据库：instance/books.db（Flask 自动创建 instance 目录）
     SQLALCHEMY_DATABASE_URI = os.environ.get(

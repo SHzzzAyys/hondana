@@ -28,6 +28,7 @@
     </div>
     <form method="post" action="{{ url_for('shelves.delete', shelf_id=shelf.id) }}"
           onsubmit="return confirm('确认删除书单「{{ shelf.name }}」？');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <button type="submit"
               class="px-3 py-1.5 text-sm border border-sakura text-sakura rounded-lg hover:bg-sakura/15 transition-colors flex items-center gap-1.5">
         <i data-lucide="trash-2" class="w-3.5 h-3.5"></i><span>删除书单</span>
@@ -41,6 +42,7 @@
 <div class="bg-white border border-border rounded-lg shadow-soft p-5 mb-8">
   <p class="text-sm text-ink font-medium mb-3">添加书籍到此书单</p>
   <form method="post" action="{{ url_for('shelves.add_book', shelf_id=shelf.id) }}" class="flex gap-2">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
     <select name="book_id" class="flex-1 px-3 py-2 text-sm bg-white border border-border rounded-lg">
       {% for book in available_books %}
         <option value="{{ book.id }}">{{ book.title }} — {{ book.author }}</option>
@@ -81,6 +83,7 @@
           </span>
         </div>
         <form method="post" action="{{ url_for('shelves.remove_book', shelf_id=shelf.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
           <input type="hidden" name="book_id" value="{{ book.id }}" />
           <button type="submit"
                   class="opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 text-xs text-warm hover:text-sakura flex items-center gap-1">

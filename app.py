@@ -5,11 +5,14 @@ from datetime import datetime
 
 import click
 from flask import Flask
+from flask_wtf.csrf import CSRFProtect
 from markupsafe import Markup, escape
 from sqlalchemy import inspect, text
 
-from config import Config
+from config import Config, DEFAULT_DEV_SECRET_KEY
 from models import db
+
+csrf = CSRFProtect()
 
 
 def create_app(config_class=Config, instance_path=None):
@@ -25,6 +28,8 @@ def create_app(config_class=Config, instance_path=None):
     )
     app.config.from_object(config_class)
 
+    _enforce_secret_key(app)
+
     # 确保 instance 目录存在
     os.makedirs(app.instance_path, exist_ok=True)
 
@@ -37,6 +42,10 @@ def create_app(config_class=Config, instance_path=None):
 
     # 注册 SQLAlchemy
     db.init_app(app)
+
+    # 注册 CSRF 保护(所有 POST/PATCH/PUT/DELETE 默认需 token,
+    # AJAX 通过 base.html 的 fetch 包装器统一带 X-CSRFToken header)
+    csrf.init_app(app)
 
     # 注册 Blueprint
     from routes.books import bp as books_bp
@@ -65,6 +74,29 @@ def create_app(config_class=Config, instance_path=None):
     _auto_backup(app)
 
     return app
+
+
+def _enforce_secret_key(app):
+    """SECRET_KEY 检查:
+    - TESTING 模式跳过(测试用 fixture 注入)
+    - DEBUG 模式仅打印警告(开发友好)
+    - 生产模式若 key 等于默认值则拒绝启动(防止部署忘记设置)
+
+    桌面模式(desktop.py)已在启动前 setdefault 一个随机值,不会触发拒绝。
+    """
+    if app.config.get("TESTING"):
+        return
+    key = app.config.get("SECRET_KEY") or ""
+    if key != DEFAULT_DEV_SECRET_KEY:
+        return
+    msg = (
+        "SECRET_KEY 仍为默认开发值,生产环境不安全。"
+        "请通过环境变量 SECRET_KEY 设置一个长随机字符串后再启动。"
+    )
+    if app.debug:
+        app.logger.warning("[SECURITY] " + msg)
+        return
+    raise RuntimeError(msg)
 
 
 def _auto_backup(app):

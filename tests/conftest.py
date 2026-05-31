@@ -18,6 +18,8 @@ def app(tmp_path):
     class TestConfig(Config):
         TESTING = True
         SQLALCHEMY_DATABASE_URI = f"sqlite:///{tmp_path / 'test.db'}"
+        # 现有功能测试不关心 CSRF;CSRF 专项测试见 test_csrf.py(单独打开)
+        WTF_CSRF_ENABLED = False
 
     flask_app = create_app(config_class=TestConfig, instance_path=str(tmp_path))
 

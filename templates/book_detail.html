@@ -122,6 +122,7 @@
     <div class="border-t border-border pt-5 mb-5">
       <p class="text-xs text-warm mb-2">快速更新</p>
       <form method="post" action="{{ url_for('books.quick_update', book_id=book.id) }}" class="inline-flex items-center gap-2 mb-3 mr-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <input type="hidden" name="field" value="status" />
         <select name="value" onchange="this.form.submit()"
                 class="text-sm px-3 py-1.5 bg-white border border-border rounded-lg">
@@ -131,6 +132,7 @@
         </select>
       </form>
       <form method="post" action="{{ url_for('books.quick_update', book_id=book.id) }}" class="inline-flex items-center gap-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <input type="hidden" name="field" value="rating" />
         <select name="value" onchange="this.form.submit()"
                 class="text-sm px-3 py-1.5 bg-white border border-border rounded-lg">
@@ -209,7 +211,9 @@
         <i data-lucide="trash-2" class="w-4 h-4"></i>
         <span>删除</span>
       </button>
-      <form method="post" action="{{ url_for('books.delete', book_id=book.id) }}" id="delete-form" class="hidden"></form>
+      <form method="post" action="{{ url_for('books.delete', book_id=book.id) }}" id="delete-form" class="hidden">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      </form>
     </div>
   </div>
 </article>
@@ -223,6 +227,7 @@
   </h2>
 
   <form method="post" action="{{ url_for('notes.create', book_id=book.id) }}" class="mb-6">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
     <textarea name="content" rows="4" required
               class="w-full px-4 py-3 text-sm bg-white border border-border rounded-lg placeholder:text-warm/60 leading-relaxed"
               placeholder="写下你的读书心得、摘抄或评论…"></textarea>
@@ -246,6 +251,7 @@
             <form method="post" action="{{ url_for('notes.delete', note_id=note.id) }}"
                   onsubmit="return confirm('确认删除这条笔记？');"
                   class="opacity-0 group-hover:opacity-100 transition-opacity">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
               <button type="submit" class="text-xs text-warm hover:text-sakura flex items-center gap-1">
                 <i data-lucide="trash" class="w-3.5 h-3.5"></i>
                 <span>删除</span>

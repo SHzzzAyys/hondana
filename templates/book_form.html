@@ -27,6 +27,7 @@
 </section>
 
 <form method="post" enctype="multipart/form-data" class="bg-white border border-border rounded-lg shadow-soft p-8 max-w-2xl">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
   <div class="mb-5">
     <label class="{{ label_class }}" for="title">书名 <span class="text-sakura">*</span></label>
     <input id="title" name="title" type="text" required value="{{ data.title }}" class="{{ input_class }}" placeholder="例如：挪威的森林" />

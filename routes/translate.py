@@ -7,6 +7,27 @@ from flask import Blueprint, current_app, jsonify, render_template, request
 
 bp = Blueprint("translate", __name__)
 
+# 环境变量名:优先级高于 settings.json,避免把 API Key 明文写到磁盘。
+# 已部署的旧用户若 settings.json 里仍有 key 也兼容工作。
+_DEEPSEEK_ENV = "DEEPSEEK_API_KEY"
+
+
+def _get_deepseek_key(settings):
+    """按 env > settings.json 顺序返回 key,找不到返回空串"""
+    env_key = (os.environ.get(_DEEPSEEK_ENV) or "").strip()
+    if env_key:
+        return env_key
+    return (settings.get("deepseek_api_key") or "").strip()
+
+
+def _deepseek_source(settings):
+    """返回 key 的来源(env/settings/none),用于设置页提示"""
+    if (os.environ.get(_DEEPSEEK_ENV) or "").strip():
+        return "env"
+    if (settings.get("deepseek_api_key") or "").strip():
+        return "settings"
+    return "none"
+
 _SETTINGS_FILE = None
 
 
@@ -51,9 +72,11 @@ def translate():
 
     try:
         if engine == "deepseek":
-            api_key = settings.get("deepseek_api_key", "")
+            api_key = _get_deepseek_key(settings)
             if not api_key:
-                return jsonify({"error": "未配置 DeepSeek API Key，请前往设置页面配置"}), 400
+                return jsonify({
+                    "error": "未配置 DeepSeek API Key,请通过环境变量 DEEPSEEK_API_KEY 设置,或前往设置页面配置",
+                }), 400
             result = _translate_deepseek(text, api_key)
         else:
             result = _translate_google(text)
@@ -120,7 +143,8 @@ def get_translate_settings():
     settings = _load_settings()
     return jsonify({
         "translate_engine": settings.get("translate_engine", "google"),
-        "has_deepseek_key": bool(settings.get("deepseek_api_key")),
+        "has_deepseek_key": bool(_get_deepseek_key(settings)),
+        "deepseek_key_source": _deepseek_source(settings),
         "reading_goal_yearly": settings.get("reading_goal_yearly", 0),
     })
 
@@ -155,4 +179,6 @@ def save_translate_settings():
 def settings_page():
     """设置页面"""
     settings = _load_settings()
+    # 给模板透传一个布尔字段,用于在 UI 上提示"环境变量优先"
+    settings["deepseek_env_active"] = bool((os.environ.get(_DEEPSEEK_ENV) or "").strip())
     return render_template("settings.html", settings=settings)

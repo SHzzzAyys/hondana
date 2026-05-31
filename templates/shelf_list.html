@@ -14,6 +14,7 @@
 <div class="bg-white border border-border rounded-lg shadow-soft p-6 mb-8 max-w-xl">
   <h2 class="font-serif text-lg text-ink mb-4">创建新书单</h2>
   <form method="post" action="{{ url_for('shelves.create') }}" class="space-y-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
     <input name="name" type="text" required
            placeholder="书单名称，例如：年度必读"
            class="w-full px-3.5 py-2.5 text-sm bg-white border border-border rounded-lg placeholder:text-warm/60" />

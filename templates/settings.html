@@ -45,6 +45,9 @@
           </button>
         </div>
         <p class="text-xs text-warm mt-1">API Key 仅保存在本地，不会上传到任何第三方</p>
+        {% if settings.deepseek_env_active %}
+        <p class="text-xs text-matcha mt-1">已检测到环境变量 <code>DEEPSEEK_API_KEY</code>,翻译将优先使用环境变量。</p>
+        {% endif %}
       </div>
     </div>
   </div>
