@@ -8,6 +8,7 @@ from flask import Blueprint, current_app, render_template
 
 from models import (
     Book,
+    ReadingSession,
     Tag,
     STATUS_FINISHED,
     STATUS_READING,
@@ -78,24 +79,28 @@ def index():
     rating_map = {r: c for r, c in rating_rows}
     rating_dist = [{"rating": r, "count": rating_map.get(r, 0)} for r in range(1, 6)]
 
-    # 阅读时长统计
-    # 本周阅读时长
+    # 阅读时长统计 - 走 reading_sessions 表按时间窗 SUM,
+    # 避免之前用 Book.total_reading_seconds(全时段累计)导致旧书在窗口内有 1s 心跳
+    # 就把它历史全部时长算进当周的 bug。
     now = datetime.utcnow()
     week_start = now - timedelta(days=now.weekday())
     week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
-    week_books = _base_query().filter(
-        Book.last_read_at >= week_start,
-        Book.total_reading_seconds > 0,
-    ).all()
-    weekly_reading_seconds = sum(b.total_reading_seconds or 0 for b in week_books)
-
-    # 本月阅读时长
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    month_books = _base_query().filter(
-        Book.last_read_at >= month_start,
-        Book.total_reading_seconds > 0,
-    ).all()
-    monthly_reading_seconds = sum(b.total_reading_seconds or 0 for b in month_books)
+
+    def _sum_seconds_since(since):
+        # 排除软删除书的会话,与全站基础查询的语义保持一致
+        return (
+            db.session.query(
+                db.func.coalesce(db.func.sum(ReadingSession.seconds), 0)
+            )
+            .join(Book, Book.id == ReadingSession.book_id)
+            .filter(Book.deleted_at.is_(None))
+            .filter(ReadingSession.started_at >= since)
+            .scalar()
+        ) or 0
+
+    weekly_reading_seconds = _sum_seconds_since(week_start)
+    monthly_reading_seconds = _sum_seconds_since(month_start)
 
     # 总阅读时长
     total_reading = db.session.query(

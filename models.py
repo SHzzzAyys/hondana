@@ -240,6 +240,35 @@ class Bookmark(db.Model):
         return f"<Bookmark {self.id} for Book {self.book_id}>"
 
 
+class ReadingSession(db.Model):
+    """阅读会话片段 - 按时间窗口聚合阅读时长的数据源
+
+    阅读器每 30 秒发一次心跳,每次心跳写入一行 (started_at=收到时间, seconds=增量)。
+    Book.total_reading_seconds 仍维护为全时段累计(便于详情页快速展示),
+    周/月/年等时间窗统计走本表的 SUM(seconds) WHERE started_at BETWEEN ...。
+    """
+
+    __tablename__ = "reading_sessions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    book_id = db.Column(
+        db.Integer,
+        db.ForeignKey("books.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    started_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+        index=True,
+    )
+    seconds = db.Column(db.Integer, nullable=False)
+
+    def __repr__(self):
+        return f"<ReadingSession {self.id} book={self.book_id} {self.seconds}s>"
+
+
 class Shelf(db.Model):
     """自定义书单"""
 

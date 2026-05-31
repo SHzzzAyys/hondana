@@ -21,6 +21,7 @@ from werkzeug.utils import secure_filename
 from epub_meta import cover_ext_from_mime, extract_epub_metadata
 from models import (
     Book,
+    ReadingSession,
     Tag,
     STATUS_CHOICES,
     STATUS_FINISHED,
@@ -682,6 +683,8 @@ def update_reading_time(book_id):
         seconds = 0
     if seconds > 0:
         book.total_reading_seconds = (book.total_reading_seconds or 0) + seconds
+        # 同时写入会话片段,作为周/月/年时间窗统计的真源
+        db.session.add(ReadingSession(book_id=book.id, seconds=seconds))
         db.session.commit()
     return jsonify({"ok": True, "total": book.total_reading_seconds or 0})
 

@@ -68,10 +68,11 @@ def ensure_initial_setup(instance_path: str) -> None:
                     conn.execute(text(f"ALTER TABLE books ADD COLUMN {name} {coldef}"))
             print(f"[setup] added columns: {[n for n, _ in to_add]}")
 
-        # 补齐缺失的表(annotations / bookmarks)
+        # 补齐缺失的表(annotations / bookmarks / reading_sessions ...)
         inspector = inspect(db.engine)
         tables = set(inspector.get_table_names())
-        if "annotations" not in tables or "bookmarks" not in tables:
+        required = {"annotations", "bookmarks", "reading_sessions"}
+        if not required.issubset(tables):
             db.create_all()
             print("[setup] created missing tables")
 

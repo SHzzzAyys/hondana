@@ -207,7 +207,7 @@ def register_commands(app):
         inspector = inspect(db.engine)
         tables = set(inspector.get_table_names())
         created_something = False
-        for tbl in ("annotations", "bookmarks", "shelves", "shelf_books"):
+        for tbl in ("annotations", "bookmarks", "shelves", "shelf_books", "reading_sessions"):
             if tbl not in tables:
                 created_something = True
         if created_something:
