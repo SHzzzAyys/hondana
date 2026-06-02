@@ -4,12 +4,39 @@ import os
 
 import requests
 from flask import Blueprint, current_app, jsonify, render_template, request
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 bp = Blueprint("translate", __name__)
 
 # 环境变量名:优先级高于 settings.json,避免把 API Key 明文写到磁盘。
 # 已部署的旧用户若 settings.json 里仍有 key 也兼容工作。
 _DEEPSEEK_ENV = "DEEPSEEK_API_KEY"
+
+
+def _build_session():
+    """构造一个带退避重试的 requests Session。
+
+    - 仅对幂等的临时性故障重试:5xx、429、连接重置/读超时
+    - 3 次重试,退避因子 0.5(0.5s → 1s → 2s)
+    - 不重试 4xx 业务错误(401/403 等,key 不对再试也没用)
+    """
+    retry = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=("GET", "POST"),
+        raise_on_status=False,  # 由我们自己读 .status_code,而不是抛 RetryError
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    s = requests.Session()
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    return s
+
+
+# 复用同一个 Session,连接池跨请求复用
+_http = _build_session()
 
 
 def _get_deepseek_key(settings):
@@ -76,20 +103,45 @@ def translate():
             if not api_key:
                 return jsonify({
                     "error": "未配置 DeepSeek API Key,请通过环境变量 DEEPSEEK_API_KEY 设置,或前往设置页面配置",
+                    "code": "no_key",
                 }), 400
             result = _translate_deepseek(text, api_key)
         else:
             result = _translate_google(text)
     except requests.Timeout:
-        return jsonify({"error": "翻译超时，请稍后重试"}), 504
+        return jsonify({"error": "翻译超时,请稍后重试", "code": "timeout"}), 504
+    except requests.ConnectionError:
+        return jsonify({"error": "网络连接失败,请检查网络后重试", "code": "network"}), 502
+    except requests.HTTPError as e:
+        # 重试用尽后仍 4xx/5xx,把上游状态分级映射出去
+        status = e.response.status_code if e.response is not None else 502
+        if status == 429:
+            return jsonify({
+                "error": "翻译服务请求过于频繁,请稍候再试",
+                "code": "rate_limited",
+            }), 429
+        if status in (401, 403):
+            return jsonify({
+                "error": "翻译服务认证失败,请检查 API Key",
+                "code": "auth",
+            }), 401
+        if 500 <= status < 600:
+            return jsonify({
+                "error": "翻译服务暂时不可用,请稍后重试",
+                "code": "upstream",
+            }), 502
+        return jsonify({
+            "error": f"翻译失败({status})",
+            "code": "http_error",
+        }), 502
     except Exception as e:
-        return jsonify({"error": f"翻译失败: {e}"}), 500
+        return jsonify({"error": f"翻译失败: {e}", "code": "unknown"}), 500
 
     return jsonify({"result": result, "engine": engine})
 
 
 def _translate_google(text):
-    """Google Translate 免费接口"""
+    """Google Translate 免费接口(无 key,但端点可能限流,走带重试的 Session)"""
     url = "https://translate.googleapis.com/translate_a/single"
     params = {
         "client": "gtx",
@@ -98,7 +150,7 @@ def _translate_google(text):
         "dt": "t",
         "q": text,
     }
-    resp = requests.get(url, params=params, timeout=10)
+    resp = _http.get(url, params=params, timeout=10)
     resp.raise_for_status()
     data = resp.json()
     # data[0] 是翻译段落列表
@@ -129,7 +181,7 @@ def _translate_deepseek(text, api_key):
         "temperature": 0.3,
         "max_tokens": 2048,
     }
-    resp = requests.post(url, json=payload, headers=headers, timeout=30)
+    resp = _http.post(url, json=payload, headers=headers, timeout=30)
     resp.raise_for_status()
     data = resp.json()
     return data["choices"][0]["message"]["content"].strip()
