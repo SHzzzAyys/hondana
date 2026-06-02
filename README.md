@@ -107,16 +107,32 @@ cd hondana
 pip install -r requirements.txt
 ```
 
-### 2. Initialize database
+### 2. Set a SECRET_KEY (production)
+
+A real, long, random `SECRET_KEY` is required when running outside of debug mode
+— the app will refuse to boot with the default value. Generate one with:
 
 ```bash
-# Windows PowerShell
-$env:FLASK_APP = "app.py"
-flask init-db
+python -c "import secrets; print(secrets.token_hex(32))"
+```
 
+```bash
 # macOS / Linux
 export FLASK_APP=app.py
-flask init-db
+export SECRET_KEY="<paste-the-generated-hex-string>"
+
+# Windows PowerShell
+$env:FLASK_APP = "app.py"
+$env:SECRET_KEY = "<paste-the-generated-hex-string>"
+```
+
+(The desktop launcher `python desktop.py` generates a fresh random key
+automatically — you only need to set this for `python app.py` / WSGI.)
+
+### 3. Initialize database
+
+```bash
+flask init-db    # runs Alembic migrations to head; safe on fresh & existing DBs
 ```
 
 Optional — seed with sample data:
@@ -124,7 +140,13 @@ Optional — seed with sample data:
 flask seed
 ```
 
-### 3. Run
+### 4. Optional: configure DeepSeek translation
+
+```bash
+export DEEPSEEK_API_KEY="sk-..."   # env var takes priority over settings.json
+```
+
+### 5. Run
 
 ```bash
 python app.py
@@ -154,16 +176,39 @@ Open **http://127.0.0.1:5000** in your browser.
 ## Tech Stack
 
 ```
-Backend       Flask 3 · Flask-SQLAlchemy · SQLite
-Reader        epub.js
+Backend       Flask 3 · Flask-SQLAlchemy · SQLite · Alembic (Flask-Migrate)
+Reader        epub.js  (+ jszip)
 Charts        Apache ECharts
-Styling       Tailwind CSS (CDN)
-Icons         Lucide Icons (CDN)
-Fonts         Google Fonts (Noto Serif SC / Noto Sans SC)
-Translation   Google Translate API · DeepSeek Chat API
+Styling       Tailwind CSS  (Play CDN)
+Icons         Lucide Icons  (CDN)
+Fonts         Google Fonts: Noto Serif SC / Noto Sans SC
+Translation   Google Translate API · DeepSeek Chat API  (optional)
+Security      Flask-WTF (CSRF)
 ```
 
-Zero external services required — runs entirely offline (except CDN assets and translation).
+### What runs locally vs. fetched
+
+No external backend services are required — all data lives in your local SQLite
+database (`instance/books.db`). However, the front-end currently pulls a few
+assets from public CDNs on first page load:
+
+| Asset | Host | Used for |
+|-------|------|----------|
+| Tailwind CSS | `cdn.tailwindcss.com` | Layout/styling (runtime JIT) |
+| Lucide icons | `unpkg.com` | UI icons |
+| ECharts | `cdn.jsdelivr.net` | Statistics charts |
+| epub.js / jszip | `cdn.jsdelivr.net` | In-browser EPUB reader |
+| Noto Serif/Sans SC | `fonts.googleapis.com` | Headings/body font |
+
+These are cached by the browser after first load, so subsequent visits work
+offline as long as the cache lives. For air-gapped / fully self-hosted
+deployments, vendoring these assets into `static/vendor/` is on the roadmap
+(see Phase 2 self-hosting work).
+
+Translation is the only outbound call from the **backend**: Google Translate
+(no key) or DeepSeek (configure via `DEEPSEEK_API_KEY` env var or the settings
+page). Both are optional — without them, every other feature works fully
+offline.
 
 ---
 
