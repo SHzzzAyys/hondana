@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: pytest (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install runtime + test deps
+        # pywebview 仅桌面壳需要,CI 跳过以避免 GTK/proxy_tools 构建链
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            "Flask==3.0.3" \
+            "Flask-SQLAlchemy==3.1.1" \
+            "Flask-WTF>=1.2.0" \
+            "Flask-Migrate>=4.0.0" \
+            "requests>=2.31.0" \
+            "pytest>=8.0"
+
+      - name: Run pytest
+        env:
+          SECRET_KEY: ci-test-secret-not-real
+        run: pytest -v --tb=short
