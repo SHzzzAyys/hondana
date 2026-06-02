@@ -86,16 +86,17 @@ def test_update_reading_time_writes_session_row(app, client):
 def test_monthly_window_aggregates_sessions(app, client):
     """本月窗口聚合多本书 + 多条 session"""
     now = datetime.utcnow()
+    # 用 month_start 作为锚点构造本月内/本月外时间戳,避免月初跑测试时 now-Nd 落到上月
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     with app.app_context():
         b1 = _make_book(app)
         b2 = _make_book(app)
         # b1 本月两条
-        _make_session(app, b1.id, now - timedelta(days=1), 60)
-        _make_session(app, b1.id, now - timedelta(days=2), 120)
+        _make_session(app, b1.id, month_start + timedelta(hours=1), 60)
+        _make_session(app, b1.id, month_start + timedelta(hours=2), 120)
         # b2 本月一条
-        _make_session(app, b2.id, now - timedelta(days=3), 90)
+        _make_session(app, b2.id, month_start + timedelta(hours=3), 90)
         # 上月一条(应被排除)
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         _make_session(app, b1.id, month_start - timedelta(days=1), 9999)
 
     resp = client.get("/stats")

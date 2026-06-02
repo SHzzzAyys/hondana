@@ -5,14 +5,16 @@ from datetime import datetime
 
 import click
 from flask import Flask
+from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
 from markupsafe import Markup, escape
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect
 
 from config import Config, DEFAULT_DEV_SECRET_KEY
 from models import db
 
 csrf = CSRFProtect()
+migrate = Migrate()
 
 
 def create_app(config_class=Config, instance_path=None):
@@ -42,6 +44,10 @@ def create_app(config_class=Config, instance_path=None):
 
     # 注册 SQLAlchemy
     db.init_app(app)
+
+    # 注册 Alembic 迁移(提供 `flask db migrate/upgrade/...` CLI 命令)
+    migrations_dir = os.path.join(os.path.dirname(__file__), "migrations")
+    migrate.init_app(app, db, directory=migrations_dir)
 
     # 注册 CSRF 保护(所有 POST/PATCH/PUT/DELETE 默认需 token,
     # AJAX 通过 base.html 的 fetch 包装器统一带 X-CSRFToken header)
@@ -74,6 +80,34 @@ def create_app(config_class=Config, instance_path=None):
     _auto_backup(app)
 
     return app
+
+
+def bootstrap_db(app):
+    """启动时把数据库带到最新版本(供桌面入口和 WSGI 入口复用)。
+
+    三种现实状态:
+    1. 全新库:无 alembic_version 表也无 books 表 → 跑 `alembic upgrade head` 建全部。
+    2. 既有库但未接入迁移:有 books 表但无 alembic_version 表 → stamp head
+       让 Alembic 认为已是最新,后续新迁移正常应用。
+    3. 已接入迁移:有 alembic_version 表 → upgrade head(空操作或应用增量迁移)。
+
+    TESTING 模式跳过(测试 fixture 直接用 db.create_all() 更快)。
+    """
+    if app.config.get("TESTING"):
+        return
+    from flask_migrate import stamp as migrate_stamp, upgrade as migrate_upgrade
+
+    with app.app_context():
+        insp = inspect(db.engine)
+        tables = set(insp.get_table_names())
+        has_alembic = "alembic_version" in tables
+        has_app_tables = "books" in tables
+
+        if has_app_tables and not has_alembic:
+            # 老库接入迁移:盖戳为最新,跳过初始迁移的 CREATE TABLE
+            migrate_stamp()
+        # 应用任何尚未跑过的增量迁移(全新库会一次性建全部表)
+        migrate_upgrade()
 
 
 def _enforce_secret_key(app):
@@ -188,9 +222,9 @@ def register_commands(app):
 
     @app.cli.command("init-db")
     def init_db():
-        """创建数据库表"""
-        db.create_all()
-        click.echo("[OK] database tables created")
+        """初始化/升级数据库(走 Alembic,等价于 `flask db upgrade`)"""
+        bootstrap_db(app)
+        click.echo("[OK] database is at latest revision")
 
     @app.cli.command("seed")
     def seed_cmd():
@@ -198,55 +232,6 @@ def register_commands(app):
         from seed import run_seed
 
         run_seed()
-
-    @app.cli.command("upgrade-db")
-    def upgrade_db():
-        """为已有数据库补齐新字段 + 建立新表(非破坏性)。"""
-        inspector = inspect(db.engine)
-        # 1) books 新字段
-        if "books" in inspector.get_table_names():
-            columns = {c["name"] for c in inspector.get_columns("books")}
-            missing = []
-            if "epub_filename" not in columns:
-                missing.append(("epub_filename", "VARCHAR(260)"))
-            if "last_read_cfi" not in columns:
-                missing.append(("last_read_cfi", "VARCHAR(500)"))
-            if "last_read_at" not in columns:
-                missing.append(("last_read_at", "DATETIME"))
-            if "reading_progress" not in columns:
-                missing.append(("reading_progress", "FLOAT"))
-            if "total_reading_seconds" not in columns:
-                missing.append(("total_reading_seconds", "INTEGER DEFAULT 0"))
-            if "deleted_at" not in columns:
-                missing.append(("deleted_at", "DATETIME"))
-            if missing:
-                with db.engine.begin() as conn:
-                    for name, coldef in missing:
-                        conn.execute(text(f"ALTER TABLE books ADD COLUMN {name} {coldef}"))
-                        click.echo(f"[OK] added books.{name}")
-            else:
-                click.echo("[SKIP] books columns all present")
-
-        # 2) notes 新字段
-        if "notes" in inspector.get_table_names():
-            columns = {c["name"] for c in inspector.get_columns("notes")}
-            if "deleted_at" not in columns:
-                with db.engine.begin() as conn:
-                    conn.execute(text("ALTER TABLE notes ADD COLUMN deleted_at DATETIME"))
-                    click.echo("[OK] added notes.deleted_at")
-
-        # 3) 新表
-        inspector = inspect(db.engine)
-        tables = set(inspector.get_table_names())
-        created_something = False
-        for tbl in ("annotations", "bookmarks", "shelves", "shelf_books", "reading_sessions"):
-            if tbl not in tables:
-                created_something = True
-        if created_something:
-            db.create_all()  # 只建缺失的表
-            click.echo("[OK] created missing tables")
-        else:
-            click.echo("[SKIP] all tables present")
 
     @app.cli.command("purge-deleted")
     @click.option("--days", default=30, help="清理多少天前软删除的数据")

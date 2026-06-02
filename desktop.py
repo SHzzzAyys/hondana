@@ -37,44 +37,12 @@ def get_instance_path() -> str:
 
 
 def ensure_initial_setup(instance_path: str) -> None:
-    """首次启动时创建数据库表。已存在则检查是否需要迁移。"""
+    """首次启动时把数据库带到最新版本(走 Alembic 迁移)"""
     import app as app_module
 
     flask_app = app_module.create_app(instance_path=instance_path)
-    with flask_app.app_context():
-        from models import db
-        from sqlalchemy import inspect, text
-
-        inspector = inspect(db.engine)
-        tables = set(inspector.get_table_names())
-
-        if "books" not in tables:
-            db.create_all()
-            print(f"[setup] created tables in {instance_path}/books.db")
-            return
-
-        # 既有库:检查并补齐 books 新列
-        cols = {c["name"] for c in inspector.get_columns("books")}
-        to_add = []
-        if "epub_filename" not in cols:
-            to_add.append(("epub_filename", "VARCHAR(260)"))
-        if "last_read_cfi" not in cols:
-            to_add.append(("last_read_cfi", "VARCHAR(500)"))
-        if "last_read_at" not in cols:
-            to_add.append(("last_read_at", "DATETIME"))
-        if to_add:
-            with db.engine.begin() as conn:
-                for name, coldef in to_add:
-                    conn.execute(text(f"ALTER TABLE books ADD COLUMN {name} {coldef}"))
-            print(f"[setup] added columns: {[n for n, _ in to_add]}")
-
-        # 补齐缺失的表(annotations / bookmarks / reading_sessions ...)
-        inspector = inspect(db.engine)
-        tables = set(inspector.get_table_names())
-        required = {"annotations", "bookmarks", "reading_sessions"}
-        if not required.issubset(tables):
-            db.create_all()
-            print("[setup] created missing tables")
+    app_module.bootstrap_db(flask_app)
+    print(f"[setup] database at latest revision in {instance_path}/books.db")
 
 
 # ---------------------------- Flask 线程 ----------------------------
