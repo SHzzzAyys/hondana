@@ -28,16 +28,13 @@ jobs:
           cache: pip
 
       - name: Install runtime + test deps
-        # pywebview 仅桌面壳需要,CI 跳过以避免 GTK/proxy_tools 构建链
+        # 从 requirements.txt 装(显式过滤掉 pywebview, 它要 GTK/proxy_tools 构建链,
+        # CI 跑不到桌面壳)。其他依赖随 requirements.txt 自动跟进。
         run: |
           python -m pip install --upgrade pip
-          pip install \
-            "Flask==3.0.3" \
-            "Flask-SQLAlchemy==3.1.1" \
-            "Flask-WTF>=1.2.0" \
-            "Flask-Migrate>=4.0.0" \
-            "requests>=2.31.0" \
-            "pytest>=8.0"
+          grep -v '^pywebview' requirements.txt > /tmp/ci-requirements.txt
+          pip install -r /tmp/ci-requirements.txt
+          pip install "pytest>=8.0"
 
       - name: Run pytest
         env:
