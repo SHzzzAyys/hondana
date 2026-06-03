@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+
+{% block title %}{{ year }} 年度回顾 · 本棚{% endblock %}
+
+{% block search_bar %}{% endblock %}
+
+{# 热力图配色:0 / 微 / 少 / 中 / 多 #}
+{% set heat_colors = ['#FAF8F3', '#E5F0E8', '#C8E0D2', '#A8C8B8', '#7AAA92'] %}
+{% set weekday_labels = ['一', '二', '三', '四', '五', '六', '日'] %}
+
+{% block content %}
+
+{# 顶部标题 + 年份导航 #}
+<section class="mb-10 flex items-center justify-between gap-4 flex-wrap">
+  <div>
+    <p class="text-xs text-warm uppercase tracking-widest mb-1">year in review</p>
+    <h1 class="text-4xl font-serif font-medium text-ink">{{ year }} 年度回顾</h1>
+  </div>
+  <div class="flex items-center gap-2 text-sm">
+    <a href="{{ url_for('stats.year_review', year=prev_year) }}"
+       class="px-3 py-1.5 border border-border rounded-lg text-ink hover:bg-cream flex items-center gap-1">
+      <i data-lucide="chevron-left" class="w-4 h-4"></i><span>{{ prev_year }}</span>
+    </a>
+    <a href="{{ url_for('stats.year_review', year=next_year) }}"
+       class="px-3 py-1.5 border border-border rounded-lg text-ink hover:bg-cream flex items-center gap-1">
+      <span>{{ next_year }}</span><i data-lucide="chevron-right" class="w-4 h-4"></i>
+    </a>
+    <a href="{{ url_for('stats.index') }}"
+       class="px-3 py-1.5 border border-border rounded-lg text-warm hover:bg-cream flex items-center gap-1">
+      <i data-lucide="bar-chart-3" class="w-4 h-4"></i><span>统计首页</span>
+    </a>
+  </div>
+</section>
+
+{% if not has_sessions %}
+  <div class="py-24 text-center bg-white border border-border rounded-lg">
+    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-cream mb-4">
+      <i data-lucide="calendar-x" class="w-7 h-7 text-warm"></i>
+    </div>
+    <p class="font-serif text-lg text-ink mb-2">{{ year }} 还没有阅读记录</p>
+    <a href="{{ url_for('stats.index') }}"
+       class="text-sm text-matcha hover:underline">← 返回统计</a>
+  </div>
+{% else %}
+
+{# Hero 数字卡 #}
+<section class="grid grid-cols-2 md:grid-cols-4 gap-5 mb-10">
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <p class="text-xs text-warm mb-2">本年阅读时长</p>
+    <p class="font-serif text-2xl text-ink">{{ total_seconds|reading_time_fmt }}</p>
+  </div>
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <p class="text-xs text-warm mb-2">已读书籍</p>
+    <p class="font-serif text-2xl text-ink">{{ finished_count }} 本</p>
+  </div>
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <p class="text-xs text-warm mb-2">有阅读的天数</p>
+    <p class="font-serif text-2xl text-ink">{{ days_with_reading }} 天</p>
+  </div>
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <p class="text-xs text-warm mb-2">最长单日</p>
+    <p class="font-serif text-2xl text-ink">{{ longest_day_seconds|reading_time_fmt }}</p>
+  </div>
+</section>
+
+{# 热力图 #}
+<section class="bg-white border border-border rounded-lg shadow-soft p-6 mb-10 overflow-x-auto">
+  <h3 class="font-serif text-lg text-ink mb-4 flex items-center gap-2">
+    <i data-lucide="calendar-days" class="w-4 h-4 text-warm"></i>
+    <span>阅读日历</span>
+  </h3>
+  <table class="border-separate" style="border-spacing: 3px;">
+    <tbody>
+      {% for row in range(7) %}
+      <tr>
+        <td class="text-[10px] text-warm pr-2 align-middle">{{ weekday_labels[row] }}</td>
+        {% for week in heatmap_weeks %}
+          {% set cell = week[row] %}
+          {% if cell.bucket < 0 %}
+            <td style="width:12px;height:12px;"></td>
+          {% else %}
+            <td title="{{ cell.date.strftime('%Y-%m-%d') }} · {{ cell.seconds|reading_time_fmt }}"
+                style="width:12px;height:12px;background:{{ heat_colors[cell.bucket] }};border-radius:2px;"></td>
+          {% endif %}
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="mt-4 flex items-center gap-2 text-[11px] text-warm">
+    <span>少</span>
+    {% for c in heat_colors %}
+      <span style="display:inline-block;width:12px;height:12px;background:{{ c }};border-radius:2px;border:1px solid #E5E0D5;"></span>
+    {% endfor %}
+    <span>多</span>
+  </div>
+</section>
+
+{# 时段分布 #}
+<section class="bg-white border border-border rounded-lg shadow-soft p-6 mb-10">
+  <h3 class="font-serif text-lg text-ink mb-1 flex items-center gap-2">
+    <i data-lucide="clock" class="w-4 h-4 text-warm"></i>
+    <span>时段分布</span>
+  </h3>
+  <p class="text-xs text-warm mb-4">一天 24 小时,什么时候在读书</p>
+  <div id="chart-hour" class="h-64"></div>
+</section>
+
+{# 本年已读书籍 #}
+<section class="bg-white border border-border rounded-lg shadow-soft p-6 mb-10">
+  <h3 class="font-serif text-lg text-ink mb-4 flex items-center gap-2">
+    <i data-lucide="check-circle-2" class="w-4 h-4 text-warm"></i>
+    <span>{{ year }} 已读 · {{ finished_count }} 本</span>
+  </h3>
+  {% if finished_books %}
+    <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-4">
+      {% for book in finished_books %}
+        <a href="{{ url_for('books.detail', book_id=book.id) }}"
+           class="group block">
+          <div class="aspect-[3/4] bg-cream rounded overflow-hidden flex items-center justify-center relative">
+            {% if book.cover_url %}
+              <img src="{{ book.cover_url }}" alt="{{ book.title }}" class="w-full h-full object-cover" />
+            {% elif book.epub_filename %}
+              <img src="{{ url_for('books.extracted_cover', book_id=book.id) }}"
+                   alt="{{ book.title }}"
+                   class="w-full h-full object-cover"
+                   onerror="this.onerror=null;this.style.display='none';" />
+              <span class="font-serif text-4xl text-warm/40 select-none absolute inset-0 flex items-center justify-center -z-0">{{ book.title[0] if book.title else '书' }}</span>
+            {% else %}
+              <span class="font-serif text-4xl text-warm/40 select-none">{{ book.title[0] if book.title else '书' }}</span>
+            {% endif %}
+          </div>
+          <p class="mt-2 text-xs text-ink line-clamp-2 group-hover:text-matcha transition-colors">{{ book.title }}</p>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-sm text-warm italic">这一年还没读完任何书</p>
+  {% endif %}
+</section>
+
+{# 标签 #}
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <h3 class="font-serif text-lg text-ink mb-4 flex items-center gap-2">
+      <i data-lucide="tags" class="w-4 h-4 text-warm"></i>
+      <span>本年热门标签</span>
+    </h3>
+    {% if top_tags %}
+      {% set max_count = top_tags[0][1] %}
+      <ul class="space-y-2">
+        {% for name, count in top_tags %}
+          <li>
+            <div class="flex items-center justify-between text-sm mb-1">
+              <span class="text-ink">{{ name }}</span>
+              <span class="text-xs text-warm">{{ count }}</span>
+            </div>
+            <div class="h-1.5 bg-border/50 rounded-full overflow-hidden">
+              <div class="h-full bg-sky rounded-full"
+                   style="width:{{ ((count / max_count) * 100)|round }}%"></div>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-sm text-warm italic">还没有打过标签的书</p>
+    {% endif %}
+  </div>
+
+  {# 最长批注 #}
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <h3 class="font-serif text-lg text-ink mb-4 flex items-center gap-2">
+      <i data-lucide="quote" class="w-4 h-4 text-warm"></i>
+      <span>最长批注</span>
+    </h3>
+    {% if longest_annotations %}
+      <ul class="space-y-4">
+        {% for a in longest_annotations %}
+          <li class="border-l-2 border-sakura/60 pl-3">
+            <p class="text-sm text-ink line-clamp-3">{{ a.quote }}</p>
+            {% if a.note %}
+              <p class="text-xs text-warm mt-1 line-clamp-2">{{ a.note }}</p>
+            {% endif %}
+            <a href="{{ url_for('books.detail', book_id=a.book_id) }}"
+               class="text-xs text-matcha hover:underline mt-1 inline-block">查看书籍 →</a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-sm text-warm italic">这一年还没有批注</p>
+    {% endif %}
+  </div>
+</section>
+
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{% if has_sessions %}
+<script>
+  (function () {
+    var el = document.getElementById('chart-hour');
+    if (!el || !window.echarts) return;
+    var chart = echarts.init(el);
+    var hours = {{ hour_totals|tojson }};
+    var labels = [];
+    for (var i = 0; i < 24; i++) labels.push(i + 'h');
+    chart.setOption({
+      backgroundColor: 'transparent',
+      textStyle: { fontFamily: '"Noto Sans SC", sans-serif', color: '#3D3D3D', fontSize: 12 },
+      grid: { left: 40, right: 20, top: 20, bottom: 30, containLabel: true },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: '#FFFFFF',
+        borderColor: '#E5E0D5',
+        borderWidth: 1,
+        formatter: function (params) {
+          var secs = params[0].value;
+          var mins = Math.floor(secs / 60);
+          var h = Math.floor(mins / 60);
+          var m = mins % 60;
+          var txt = h > 0 ? (h + ' 小时 ' + m + ' 分钟') : (m + ' 分钟');
+          return params[0].name + ' · ' + txt;
+        }
+      },
+      xAxis: {
+        type: 'category', data: labels,
+        axisLine: { lineStyle: { color: '#E5E0D5' } },
+        axisTick: { show: false },
+        axisLabel: { color: '#8A8680', fontSize: 10 },
+      },
+      yAxis: {
+        type: 'value',
+        splitLine: { lineStyle: { color: '#E5E0D5', type: 'dashed' } },
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: {
+          color: '#8A8680',
+          formatter: function (v) { return Math.round(v / 60) + 'm'; }
+        },
+      },
+      series: [{
+        type: 'bar',
+        data: hours,
+        barMaxWidth: 18,
+        itemStyle: {
+          color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: '#A8C8B8' },
+              { offset: 1, color: 'rgba(168, 200, 184, 0.4)' },
+            ] },
+          borderRadius: [4, 4, 0, 0],
+        },
+      }],
+    });
+    window.addEventListener('resize', function () { chart.resize(); });
+  })();
+</script>
+{% endif %}
+{% endblock %}

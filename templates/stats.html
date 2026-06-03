@@ -6,9 +6,16 @@
 
 {% block content %}
 
-<section class="mb-10">
-  <h1 class="text-3xl font-serif font-medium text-ink mb-1">阅读统计</h1>
-  <p class="text-sm text-warm">用数据记录你的阅读轨迹</p>
+<section class="mb-10 flex items-end justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-3xl font-serif font-medium text-ink mb-1">阅读统计</h1>
+    <p class="text-sm text-warm">用数据记录你的阅读轨迹</p>
+  </div>
+  <a href="{{ url_for('stats.year_review', year=current_year) }}"
+     class="text-sm text-matcha hover:underline flex items-center gap-1">
+    <i data-lucide="sparkles" class="w-4 h-4"></i>
+    <span>查看年度回顾 →</span>
+  </a>
 </section>
 
 {# 数字卡片 #}
