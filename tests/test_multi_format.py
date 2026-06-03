@@ -64,12 +64,12 @@ def test_upload_unsupported_extension_rejected(app, client):
     assert "仅支持" in resp.get_data(as_text=True)
 
 
-def test_pdf_book_redirects_from_reader_to_detail(app, client):
+def test_pdf_book_reader_renders(app, client):
+    """P1-5: PDF 已支持在线阅读 - /read 渲染 reader_pdf 模板(200)"""
     with app.app_context():
-        book_id = _upload(client, "pdf")
+        book_id = _upload(client, "pdf", b"%PDF-1.4 fake")
     resp = client.get(f"/books/{book_id}/read", follow_redirects=False)
-    assert resp.status_code == 302
-    assert f"/books/{book_id}" in resp.headers["Location"]
+    assert resp.status_code == 200
 
 
 def test_epub_book_reader_renders(app, client):

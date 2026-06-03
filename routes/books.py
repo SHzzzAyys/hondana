@@ -687,21 +687,27 @@ def _make_snippet(content, q, radius=40):
 
 @bp.route("/books/<int:book_id>/read")
 def read(book_id):
-    """在线阅读页(epub.js)。非 EPUB 格式当前引导到详情页下载。"""
+    """在线阅读页 - 按 file_format 分派到对应模板;MOBI 浏览器无法直接渲染,仍重定向。"""
     book = Book.query.get_or_404(book_id)
     if not book.epub_filename:
         flash("这本书还没有上传文件", "error")
         return redirect(url_for("books.detail", book_id=book.id))
-    if (book.file_format or "epub") != "epub":
-        flash(
-            f"{book.file_format.upper()} 格式暂不支持在线阅读,请下载到本地查看",
-            "error",
-        )
-        return redirect(url_for("books.detail", book_id=book.id))
     if not _find_book_file(book.id):
         flash("书籍文件丢失，请重新上传", "error")
         return redirect(url_for("books.edit", book_id=book.id))
-    return render_template("reader.html", book=book)
+
+    fmt = (book.file_format or "epub").lower()
+    if fmt == "epub":
+        return render_template("reader.html", book=book)
+    if fmt == "pdf":
+        return render_template("reader_pdf.html", book=book)
+    if fmt == "txt":
+        return render_template("reader_txt.html", book=book)
+    flash(
+        f"{fmt.upper()} 格式暂不支持在线阅读,请下载到本地查看",
+        "error",
+    )
+    return redirect(url_for("books.detail", book_id=book.id))
 
 
 @bp.route("/books/<int:book_id>/epub")

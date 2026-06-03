@@ -1,0 +1,377 @@
+{% extends "base.html" %}
+
+{% block title %}阅读 · {{ book.title }} · 本棚{% endblock %}
+
+{% block search_bar %}{% endblock %}
+
+{% block main_class %}max-w-[1600px] mx-auto px-6 py-6{% endblock %}
+
+{% block head_extra %}
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <style>
+    :root {
+      --reader-bg: #FAF8F3;
+      --reader-text: #3D3D3D;
+      --reader-border: #E5E0D5;
+      --reader-nav-bg: rgba(255, 255, 255, 0.9);
+    }
+    [data-theme="dark"] {
+      --reader-bg: #1a1a2e;
+      --reader-text: #d4d4d8;
+      --reader-border: #374151;
+      --reader-nav-bg: rgba(30, 30, 50, 0.9);
+    }
+    [data-theme="sepia"] {
+      --reader-bg: #f4ecd8;
+      --reader-text: #5b4636;
+      --reader-border: #d6c9a8;
+      --reader-nav-bg: rgba(244, 236, 216, 0.9);
+    }
+
+    #viewer {
+      background: var(--reader-bg);
+      border: 1px solid var(--reader-border);
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(61, 61, 61, 0.04);
+      height: calc(100vh - 200px);
+      min-height: 500px;
+      position: relative;
+      overflow: auto;
+      transition: background 0.3s, border-color 0.3s;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 20px;
+    }
+    #pdf-canvas {
+      box-shadow: 0 2px 6px rgba(61, 61, 61, 0.12);
+      max-width: 100%;
+      height: auto;
+      display: block;
+    }
+    .nav-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 48px;
+      height: 48px;
+      background: var(--reader-nav-bg);
+      border: 1px solid var(--reader-border);
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--reader-text);
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(61, 61, 61, 0.08);
+      transition: background 0.15s, color 0.15s;
+      z-index: 5;
+    }
+    .nav-btn:hover { background: #A8C8B8; color: #fff; }
+    .nav-prev { left: 0; }
+    .nav-next { right: 0; }
+
+    #reader-status {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 8px;
+      pointer-events: none;
+      color: #8A8680; font-size: 13px;
+      text-align: center;
+      padding: 20px;
+    }
+    #reader-status.error { color: #C85A3E; }
+    #reader-status .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid #E5E0D5; border-top-color: #A8C8B8;
+      border-radius: 999px; animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+{% endblock %}
+
+{% block content %}
+<section class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div class="flex items-center gap-3">
+    <a href="{{ url_for('books.detail', book_id=book.id) }}"
+       class="text-sm text-warm hover:text-ink flex items-center gap-1">
+      <i data-lucide="arrow-left" class="w-4 h-4"></i><span>退出</span>
+    </a>
+    <div>
+      <h1 class="text-xl font-serif font-medium text-ink leading-tight">{{ book.title }}</h1>
+      <p class="text-xs text-warm">{{ book.author }}</p>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-2 flex-wrap">
+    <div class="flex items-center gap-1 text-sm">
+      <span class="text-warm">第</span>
+      <input type="number" id="page-input" min="1" value="1"
+             class="w-16 px-2 py-1 text-sm bg-white border border-border rounded-lg text-center" />
+      <span class="text-warm">/ <span id="page-total">-</span> 页</span>
+    </div>
+    <button type="button" id="theme-toggle"
+            class="px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-cream flex items-center gap-1.5"
+            title="切换阅读主题">
+      <i data-lucide="sun-moon" class="w-4 h-4"></i>
+    </button>
+    <button type="button" id="zoom-out"
+            class="px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-cream"
+            title="缩小 (-)">
+      <i data-lucide="zoom-out" class="w-4 h-4"></i>
+    </button>
+    <button type="button" id="zoom-in"
+            class="px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-cream"
+            title="放大 (+)">
+      <i data-lucide="zoom-in" class="w-4 h-4"></i>
+    </button>
+    <button type="button" id="zoom-fit"
+            class="px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-cream"
+            title="适应宽度">
+      <i data-lucide="maximize-2" class="w-4 h-4"></i>
+    </button>
+    <a href="{{ url_for('books.epub_file', book_id=book.id, download=1) }}"
+       class="px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-cream flex items-center gap-1.5"
+       title="下载 {{ book.epub_filename }}">
+      <i data-lucide="download" class="w-4 h-4"></i><span>下载</span>
+    </a>
+  </div>
+</section>
+
+<div class="relative flex-1 min-w-0 px-[48px]">
+  <div id="viewer">
+    <canvas id="pdf-canvas"></canvas>
+    <div id="reader-status">
+      <div class="spinner"></div>
+      <div id="status-text">加载 PDF…</div>
+    </div>
+  </div>
+  <button type="button" class="nav-btn nav-prev" id="prev-btn" title="上一页（←）">
+    <i data-lucide="chevron-left" class="w-5 h-5"></i>
+  </button>
+  <button type="button" class="nav-btn nav-next" id="next-btn" title="下一页（→）">
+    <i data-lucide="chevron-right" class="w-5 h-5"></i>
+  </button>
+
+  <div class="mt-3 flex items-center gap-3 text-xs text-warm">
+    <span id="progress-label">加载中…</span>
+    <div class="flex-1 h-1.5 bg-border rounded-full overflow-hidden">
+      <div id="progress-bar" class="h-full bg-matcha transition-all" style="width:0%"></div>
+    </div>
+    <span id="progress-percent">0%</span>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const PDF_URL = "{{ url_for('books.epub_file', book_id=book.id) }}";
+  const PROGRESS_URL   = "{{ url_for('books.update_progress', book_id=book.id) }}";
+  const READING_TIME_URL = "{{ url_for('books.update_reading_time', book_id=book.id) }}";
+  const DETAIL_URL     = "{{ url_for('books.detail', book_id=book.id) }}";
+  const SAVED_CFI = {{ (book.last_read_cfi | tojson) if book.last_read_cfi else 'null' }};
+  const THEME_KEY = "bookshelf:reader:theme";
+  const ZOOM_KEY  = "bookshelf:reader:pdf-zoom";
+
+  const statusBox  = document.getElementById("reader-status");
+  const statusText = document.getElementById("status-text");
+  const progressLabel   = document.getElementById("progress-label");
+  const progressBar     = document.getElementById("progress-bar");
+  const progressPercent = document.getElementById("progress-percent");
+  const canvas = document.getElementById("pdf-canvas");
+  const ctx = canvas.getContext("2d");
+  const viewer = document.getElementById("viewer");
+  const pageInput = document.getElementById("page-input");
+  const pageTotal = document.getElementById("page-total");
+
+  function setStatus(msg, isError) {
+    statusText.textContent = msg;
+    if (isError) {
+      statusBox.classList.add("error");
+      const sp = statusBox.querySelector(".spinner");
+      if (sp) sp.style.display = "none";
+    }
+    progressLabel.textContent = msg;
+  }
+  function hideStatus() { statusBox.style.display = "none"; }
+  function showError(msg, err) {
+    console.error("[reader-pdf]", msg, err);
+    const detail = err ? (err.message || String(err)) : "";
+    setStatus(msg + (detail ? "（" + detail + "）" : ""), true);
+  }
+
+  if (typeof pdfjsLib === "undefined") { showError("pdf.js 脚本加载失败"); return; }
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+
+  const THEMES = ["light", "dark", "sepia"];
+  let currentTheme = localStorage.getItem(THEME_KEY) || "light";
+  function applyTheme(theme) {
+    currentTheme = theme;
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem(THEME_KEY, theme);
+  }
+  applyTheme(currentTheme);
+  document.getElementById("theme-toggle").addEventListener("click", function () {
+    var idx = THEMES.indexOf(currentTheme);
+    applyTheme(THEMES[(idx + 1) % THEMES.length]);
+  });
+
+  let pdfDoc = null;
+  let currentPage = 1;
+  let totalPages = 0;
+  let zoomMode = localStorage.getItem(ZOOM_KEY) || "fit"; // "fit" or numeric scale
+  let rendering = false;
+  let pendingPage = null;
+
+  function parsePageFromCfi(cfi) {
+    if (!cfi || typeof cfi !== "string") return null;
+    var m = cfi.match(/^pdf:(\d+)\/(\d+)/);
+    if (m) return parseInt(m[1], 10);
+    return null;
+  }
+
+  setStatus("下载 PDF…");
+  fetch(PDF_URL, { credentials: "same-origin" })
+    .then(function (resp) {
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      return resp.arrayBuffer();
+    })
+    .then(function (buf) {
+      setStatus("解析 PDF…");
+      return pdfjsLib.getDocument({ data: buf }).promise;
+    })
+    .then(function (doc) {
+      pdfDoc = doc;
+      totalPages = doc.numPages;
+      pageTotal.textContent = totalPages;
+      pageInput.max = totalPages;
+      var restored = parsePageFromCfi(SAVED_CFI);
+      if (restored && restored >= 1 && restored <= totalPages) currentPage = restored;
+      hideStatus();
+      progressLabel.textContent = "阅读中";
+      renderPage(currentPage);
+      setupReadingTimer();
+    })
+    .catch(function (err) { showError("加载失败", err); });
+
+  function renderPage(num) {
+    if (!pdfDoc) return;
+    if (rendering) { pendingPage = num; return; }
+    rendering = true;
+    pdfDoc.getPage(num).then(function (page) {
+      var scale;
+      if (zoomMode === "fit") {
+        var viewportPx = viewer.clientWidth - 40;
+        var unscaled = page.getViewport({ scale: 1 });
+        scale = Math.max(0.5, viewportPx / unscaled.width);
+      } else {
+        scale = parseFloat(zoomMode) || 1;
+      }
+      var viewport = page.getViewport({ scale: scale });
+      var dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(viewport.width * dpr);
+      canvas.height = Math.floor(viewport.height * dpr);
+      canvas.style.width = Math.floor(viewport.width) + "px";
+      canvas.style.height = Math.floor(viewport.height) + "px";
+      var renderCtx = {
+        canvasContext: ctx,
+        viewport: viewport,
+        transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null,
+      };
+      return page.render(renderCtx).promise;
+    }).then(function () {
+      rendering = false;
+      currentPage = num;
+      pageInput.value = num;
+      updateProgress();
+      saveProgressThrottled();
+      if (pendingPage !== null) {
+        var p = pendingPage; pendingPage = null;
+        renderPage(p);
+      }
+    }).catch(function (err) {
+      rendering = false;
+      showError("渲染失败", err);
+    });
+  }
+
+  function updateProgress() {
+    var pct = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0;
+    progressBar.style.width = pct + "%";
+    progressPercent.textContent = pct + "%";
+  }
+
+  function go(n) {
+    if (!pdfDoc) return;
+    n = Math.max(1, Math.min(totalPages, n));
+    if (n === currentPage && !rendering) return;
+    renderPage(n);
+  }
+
+  document.getElementById("prev-btn").addEventListener("click", function () { go(currentPage - 1); });
+  document.getElementById("next-btn").addEventListener("click", function () { go(currentPage + 1); });
+  pageInput.addEventListener("change", function () {
+    var n = parseInt(pageInput.value, 10);
+    if (!isNaN(n)) go(n);
+  });
+
+  document.getElementById("zoom-in").addEventListener("click", function () {
+    var current = zoomMode === "fit" ? 1 : parseFloat(zoomMode);
+    setZoom(Math.min(4, current + 0.2));
+  });
+  document.getElementById("zoom-out").addEventListener("click", function () {
+    var current = zoomMode === "fit" ? 1 : parseFloat(zoomMode);
+    setZoom(Math.max(0.4, current - 0.2));
+  });
+  document.getElementById("zoom-fit").addEventListener("click", function () { setZoom("fit"); });
+
+  function setZoom(z) {
+    zoomMode = z === "fit" ? "fit" : String(z);
+    localStorage.setItem(ZOOM_KEY, zoomMode);
+    renderPage(currentPage);
+  }
+
+  document.addEventListener("keydown", function (e) {
+    var tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") return;
+    if (e.key === "ArrowLeft") go(currentPage - 1);
+    else if (e.key === "ArrowRight") go(currentPage + 1);
+    else if (e.key === "Escape") window.location.href = DETAIL_URL;
+    else if (e.key === "+" || e.key === "=") document.getElementById("zoom-in").click();
+    else if (e.key === "-" || e.key === "_") document.getElementById("zoom-out").click();
+  });
+
+  let _resizeTimer = null;
+  window.addEventListener("resize", function () {
+    if (zoomMode !== "fit") return;
+    clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(function () { renderPage(currentPage); }, 200);
+  });
+
+  let _progressTimer = null;
+  function saveProgressThrottled() {
+    clearTimeout(_progressTimer);
+    _progressTimer = setTimeout(function () {
+      var cfi = "pdf:" + currentPage + "/" + totalPages;
+      var progress = totalPages > 0 ? currentPage / totalPages : 0;
+      fetch(PROGRESS_URL, {
+        method: "PATCH", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cfi: cfi, progress: progress }),
+      }).catch(function (e) { console.warn("[reader-pdf] save progress failed", e); });
+    }, 1500);
+  }
+
+  function setupReadingTimer() {
+    setInterval(function () {
+      fetch(READING_TIME_URL, {
+        method: "PATCH", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seconds: 30 }),
+      }).catch(function (e) { console.warn("[reader-pdf] reading time failed", e); });
+    }, 30000);
+  }
+})();
+</script>
+{% endblock %}
