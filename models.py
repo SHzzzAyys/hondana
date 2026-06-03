@@ -1,9 +1,20 @@
 """数据模型 - Book / Note / Tag / Shelf"""
+import re
 from datetime import datetime
 
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import event, inspect as sa_inspect, text
 
 db = SQLAlchemy()
+
+# unicode61 把 CJK 整段当成一个 token,这里手动按字符切开供 FTS 索引
+_CJK_RE = re.compile(r'([㐀-䶿一-鿿豈-﫿])')
+
+
+def fts_normalize(s):
+    if not s:
+        return ""
+    return _CJK_RE.sub(r' \1 ', s)
 
 
 # 状态常量
@@ -288,3 +299,210 @@ class Shelf(db.Model):
 
     def __repr__(self):
         return f"<Shelf {self.id}: {self.name}>"
+
+
+# ---------------------------- FTS5 全文搜索同步 ----------------------------
+# unicode61 + remove_diacritics=2 给出过得去的 CJK 字符级切分(无需额外分词器)。
+# 三张 external-content 虚表:rowid 对齐源表主键,delete 走标准 'delete' 行命令。
+
+FTS_DDL = [
+    "CREATE VIRTUAL TABLE IF NOT EXISTS books_fts USING fts5("
+    "title, author, publisher, "
+    "content='books', content_rowid='id', "
+    "tokenize='unicode61 remove_diacritics 2')",
+    "CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5("
+    "content, "
+    "content='notes', content_rowid='id', "
+    "tokenize='unicode61 remove_diacritics 2')",
+    "CREATE VIRTUAL TABLE IF NOT EXISTS annotations_fts USING fts5("
+    "quote, note, "
+    "content='annotations', content_rowid='id', "
+    "tokenize='unicode61 remove_diacritics 2')",
+]
+
+
+@event.listens_for(db.metadata, "after_create")
+def _create_fts_tables(target, connection, **kw):
+    for ddl in FTS_DDL:
+        connection.execute(text(ddl))
+
+
+# active_history 强制在 set 时加载旧值,以便 after_update 中的 FTS 'delete' 命令
+# 能拿到正确的旧文本(否则对从 DB 重新加载后的对象,旧值不会进入 history.deleted)
+def _noop_set(target, value, oldvalue, initiator):
+    return value
+
+
+for _col in (
+    Book.title, Book.author, Book.publisher, Book.deleted_at,
+    Note.content,
+    Annotation.quote, Annotation.note,
+):
+    event.listen(_col, "set", _noop_set, active_history=True)
+
+
+def _book_was_soft_deleted_change(book):
+    # 返回 'insert' | 'delete' | None
+    state = sa_inspect(book)
+    hist = state.attrs.deleted_at.history
+    if not hist.has_changes():
+        return None
+    old = hist.deleted[0] if hist.deleted else None
+    new = hist.added[0] if hist.added else None
+    if old is None and new is not None:
+        return "delete"
+    if old is not None and new is None:
+        return "insert"
+    return None
+
+
+def _current_val(target, attr):
+    return getattr(target, attr)
+
+
+def _old_val(target, attr):
+    # 取 SQLAlchemy 历史中的旧值;若该字段未变则旧值=当前值
+    hist = sa_inspect(target).attrs[attr].history
+    if hist.deleted:
+        return hist.deleted[0]
+    return getattr(target, attr)
+
+
+def _book_params(b, old=False):
+    pick = _old_val if old else _current_val
+    return {
+        "id": b.id,
+        "title": fts_normalize(pick(b, "title")),
+        "author": fts_normalize(pick(b, "author")),
+        "publisher": fts_normalize(pick(b, "publisher")),
+    }
+
+
+def _note_params(n, old=False):
+    pick = _old_val if old else _current_val
+    return {"id": n.id, "content": fts_normalize(pick(n, "content"))}
+
+
+def _ann_params(a, old=False):
+    pick = _old_val if old else _current_val
+    return {
+        "id": a.id,
+        "quote": fts_normalize(pick(a, "quote")),
+        "note": fts_normalize(pick(a, "note")),
+    }
+
+
+@event.listens_for(Book, "after_insert")
+def _book_after_insert(mapper, connection, target):
+    if target.deleted_at is not None:
+        return
+    connection.execute(
+        text("INSERT INTO books_fts(rowid, title, author, publisher) "
+             "VALUES(:id, :title, :author, :publisher)"),
+        _book_params(target),
+    )
+
+
+@event.listens_for(Book, "after_update")
+def _book_after_update(mapper, connection, target):
+    change = _book_was_soft_deleted_change(target)
+    if change == "delete":
+        connection.execute(
+            text("INSERT INTO books_fts(books_fts, rowid, title, author, publisher) "
+                 "VALUES('delete', :id, :title, :author, :publisher)"),
+            _book_params(target, old=True),
+        )
+        return
+    if change == "insert":
+        connection.execute(
+            text("INSERT INTO books_fts(rowid, title, author, publisher) "
+                 "VALUES(:id, :title, :author, :publisher)"),
+            _book_params(target),
+        )
+        return
+    if target.deleted_at is not None:
+        return
+    # 外部内容表更新:用旧值 delete 索引,再插入新值
+    connection.execute(
+        text("INSERT INTO books_fts(books_fts, rowid, title, author, publisher) "
+             "VALUES('delete', :id, :title, :author, :publisher)"),
+        _book_params(target, old=True),
+    )
+    connection.execute(
+        text("INSERT INTO books_fts(rowid, title, author, publisher) "
+             "VALUES(:id, :title, :author, :publisher)"),
+        _book_params(target),
+    )
+
+
+@event.listens_for(Book, "after_delete")
+def _book_after_delete(mapper, connection, target):
+    if target.deleted_at is not None:
+        return
+    connection.execute(
+        text("INSERT INTO books_fts(books_fts, rowid, title, author, publisher) "
+             "VALUES('delete', :id, :title, :author, :publisher)"),
+        _book_params(target),
+    )
+
+
+@event.listens_for(Note, "after_insert")
+def _note_after_insert(mapper, connection, target):
+    connection.execute(
+        text("INSERT INTO notes_fts(rowid, content) VALUES(:id, :content)"),
+        _note_params(target),
+    )
+
+
+@event.listens_for(Note, "after_update")
+def _note_after_update(mapper, connection, target):
+    connection.execute(
+        text("INSERT INTO notes_fts(notes_fts, rowid, content) "
+             "VALUES('delete', :id, :content)"),
+        _note_params(target, old=True),
+    )
+    connection.execute(
+        text("INSERT INTO notes_fts(rowid, content) VALUES(:id, :content)"),
+        _note_params(target),
+    )
+
+
+@event.listens_for(Note, "after_delete")
+def _note_after_delete(mapper, connection, target):
+    connection.execute(
+        text("INSERT INTO notes_fts(notes_fts, rowid, content) "
+             "VALUES('delete', :id, :content)"),
+        _note_params(target),
+    )
+
+
+@event.listens_for(Annotation, "after_insert")
+def _ann_after_insert(mapper, connection, target):
+    connection.execute(
+        text("INSERT INTO annotations_fts(rowid, quote, note) "
+             "VALUES(:id, :quote, :note)"),
+        _ann_params(target),
+    )
+
+
+@event.listens_for(Annotation, "after_update")
+def _ann_after_update(mapper, connection, target):
+    connection.execute(
+        text("INSERT INTO annotations_fts(annotations_fts, rowid, quote, note) "
+             "VALUES('delete', :id, :quote, :note)"),
+        _ann_params(target, old=True),
+    )
+    connection.execute(
+        text("INSERT INTO annotations_fts(rowid, quote, note) "
+             "VALUES(:id, :quote, :note)"),
+        _ann_params(target),
+    )
+
+
+@event.listens_for(Annotation, "after_delete")
+def _ann_after_delete(mapper, connection, target):
+    connection.execute(
+        text("INSERT INTO annotations_fts(annotations_fts, rowid, quote, note) "
+             "VALUES('delete', :id, :quote, :note)"),
+        _ann_params(target),
+    )

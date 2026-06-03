@@ -28,6 +28,7 @@ from models import (
     STATUS_READING,
     STATUS_UNREAD,
     db,
+    fts_normalize,
 )
 
 bp = Blueprint("books", __name__)
@@ -493,6 +494,16 @@ def quick_update(book_id):
     return redirect(url_for("books.detail", book_id=book.id))
 
 
+def _fts_match_expr(q):
+    # 把原查询 CJK 切字后,每个空白 token 包成 phrase, 内部双引号转义。
+    # FTS5 默认多 phrase 之间为 AND 关系,正好满足多关键词组合搜索。
+    normalized = fts_normalize(q)
+    tokens = [t for t in normalized.split() if t]
+    if not tokens:
+        return None
+    return " ".join(f'"{t.replace(chr(34), chr(34)*2)}"' for t in tokens)
+
+
 @bp.route("/search")
 def search():
     """关键词搜索 - 跨书名/作者/出版社/ISBN/笔记内容/批注"""
@@ -502,84 +513,117 @@ def search():
     if not q:
         return render_template("search.html", query="", results=[], sort=sort)
 
-    like = f"%{q}%"
-
-    # 1) 匹配书籍字段
-    field_hits = _base_query().filter(
-        db.or_(
-            Book.title.ilike(like),
-            Book.author.ilike(like),
-            Book.publisher.ilike(like),
-            Book.isbn.ilike(like),
-        )
-    ).all()
-
-    # 2) 匹配笔记内容
-    from models import Note
-    note_hits = (
-        db.session.query(Book, Note)
-        .join(Note, Note.book_id == Book.id)
-        .filter(Note.content.ilike(like))
-        .filter(Book.deleted_at.is_(None))
-        .all()
-    )
-
-    # 3) 匹配批注
-    from models import Annotation
-    ann_hits = (
-        db.session.query(Book, Annotation)
-        .join(Annotation, Annotation.book_id == Book.id)
-        .filter(db.or_(
-            Annotation.quote.ilike(like),
-            Annotation.note.ilike(like),
-        ))
-        .filter(Book.deleted_at.is_(None))
-        .all()
-    )
-
-    # 整合结果
+    match_expr = _fts_match_expr(q)
     result_map = {}
-    for book in field_hits:
-        hits = []
-        if q.lower() in (book.title or "").lower():
-            hits.append("书名")
-        if q.lower() in (book.author or "").lower():
-            hits.append("作者")
-        if book.publisher and q.lower() in book.publisher.lower():
-            hits.append("出版社")
-        if book.isbn and q.lower() in book.isbn.lower():
-            hits.append("ISBN")
-        result_map[book.id] = {
-            "book": book,
-            "hit_types": hits,
-            "note_snippets": [],
-        }
 
-    for book, note in note_hits:
-        entry = result_map.setdefault(
+    def _entry(book):
+        return result_map.setdefault(
             book.id,
-            {"book": book, "hit_types": [], "note_snippets": []},
+            {"book": book, "hit_types": [], "note_snippets": [], "_score": 0.0},
         )
-        if "笔记" not in entry["hit_types"]:
-            entry["hit_types"].append("笔记")
-        entry["note_snippets"].append(_make_snippet(note.content, q))
 
-    for book, ann in ann_hits:
-        entry = result_map.setdefault(
-            book.id,
-            {"book": book, "hit_types": [], "note_snippets": []},
-        )
-        if "批注" not in entry["hit_types"]:
-            entry["hit_types"].append("批注")
-        snippet_text = ann.quote or ann.note or ""
-        entry["note_snippets"].append(_make_snippet(snippet_text, q))
+    if match_expr:
+        # 1) 书籍字段:每列单独 MATCH 以标注 hit_type
+        for col, label in (("title", "书名"), ("author", "作者"), ("publisher", "出版社")):
+            rows = db.session.execute(
+                db.text(
+                    f"SELECT rowid, bm25(books_fts) AS s FROM books_fts "
+                    f"WHERE books_fts MATCH :m"
+                ),
+                {"m": f"{{{col}}}: {match_expr}"},
+            ).fetchall()
+            for rowid, score in rows:
+                book = Book.query.get(rowid)
+                if book is None or book.deleted_at is not None:
+                    continue
+                entry = _entry(book)
+                if label not in entry["hit_types"]:
+                    entry["hit_types"].append(label)
+                entry["_score"] = min(entry["_score"], score) if entry["_score"] else score
+
+        # 2) 整表 MATCH:捕获跨列多关键词(如 q="村上 森林" 命中 title+author 散落)
+        rows = db.session.execute(
+            db.text(
+                "SELECT rowid, bm25(books_fts) AS s FROM books_fts "
+                "WHERE books_fts MATCH :m"
+            ),
+            {"m": match_expr},
+        ).fetchall()
+        for rowid, score in rows:
+            book = Book.query.get(rowid)
+            if book is None or book.deleted_at is not None:
+                continue
+            entry = _entry(book)
+            if not entry["hit_types"]:
+                # 跨列命中:把出现 token 的列都打标
+                tokens = [t.lower() for t in fts_normalize(q).split() if t]
+                for col, label in (("title", "书名"), ("author", "作者"), ("publisher", "出版社")):
+                    val = (getattr(book, col) or "")
+                    if any(t in fts_normalize(val).lower().split() for t in tokens):
+                        entry["hit_types"].append(label)
+            entry["_score"] = min(entry["_score"], score) if entry["_score"] else score
+
+        # 3) 笔记
+        from models import Note
+        note_rows = db.session.execute(
+            db.text(
+                "SELECT rowid, bm25(notes_fts) AS s FROM notes_fts "
+                "WHERE notes_fts MATCH :m"
+            ),
+            {"m": match_expr},
+        ).fetchall()
+        for note_id, score in note_rows:
+            note = Note.query.get(note_id)
+            if note is None:
+                continue
+            book = note.book
+            if book is None or book.deleted_at is not None:
+                continue
+            entry = _entry(book)
+            if "笔记" not in entry["hit_types"]:
+                entry["hit_types"].append("笔记")
+            entry["note_snippets"].append(_make_snippet(note.content, q))
+            entry["_score"] = min(entry["_score"], score) if entry["_score"] else score
+
+        # 4) 批注
+        from models import Annotation
+        ann_rows = db.session.execute(
+            db.text(
+                "SELECT rowid, bm25(annotations_fts) AS s FROM annotations_fts "
+                "WHERE annotations_fts MATCH :m"
+            ),
+            {"m": match_expr},
+        ).fetchall()
+        for ann_id, score in ann_rows:
+            ann = Annotation.query.get(ann_id)
+            if ann is None:
+                continue
+            book = ann.book
+            if book is None or book.deleted_at is not None:
+                continue
+            entry = _entry(book)
+            if "批注" not in entry["hit_types"]:
+                entry["hit_types"].append("批注")
+            snippet_text = ann.quote or ann.note or ""
+            entry["note_snippets"].append(_make_snippet(snippet_text, q))
+            entry["_score"] = min(entry["_score"], score) if entry["_score"] else score
+
+    # 5) ISBN 走 ilike(FTS 对数字串分词不可控)
+    isbn_hits = _base_query().filter(Book.isbn.ilike(f"%{q}%")).all()
+    for book in isbn_hits:
+        entry = _entry(book)
+        if "ISBN" not in entry["hit_types"]:
+            entry["hit_types"].append("ISBN")
 
     results = list(result_map.values())
     if sort == "time":
         results.sort(key=lambda r: r["book"].created_at or datetime.min, reverse=True)
     else:
-        # 相关度: 命中类型多的排前面
-        results.sort(key=lambda r: (-len(r["hit_types"]), -(r["book"].created_at or datetime.min).timestamp()))
+        # bm25 返回越小越相关;无 FTS 命中(纯 ISBN)给 0
+        results.sort(key=lambda r: (r["_score"], -(r["book"].created_at or datetime.min).timestamp()))
+
+    for r in results:
+        r.pop("_score", None)
 
     return render_template("search.html", query=q, results=results, sort=sort)
 
@@ -588,11 +632,13 @@ def _make_snippet(content, q, radius=40):
     """生成匹配片段：命中词前后 radius 字符"""
     if not content:
         return ""
-    idx = content.lower().find(q.lower())
+    # 取第一个 token 定位;多关键词时尽量贴近第一个命中
+    needle = (q.split()[0] if q.split() else q).lower()
+    idx = content.lower().find(needle)
     if idx < 0:
         return content[: radius * 2] + ("…" if len(content) > radius * 2 else "")
     start = max(0, idx - radius)
-    end = min(len(content), idx + len(q) + radius)
+    end = min(len(content), idx + len(needle) + radius)
     prefix = "…" if start > 0 else ""
     suffix = "…" if end < len(content) else ""
     return prefix + content[start:end] + suffix
