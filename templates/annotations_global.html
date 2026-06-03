@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}批注 · 本棚{% endblock %}
+
+{% block content %}
+
+<section class="mb-8">
+  <h1 class="text-3xl font-serif font-medium text-ink mb-1">所有批注</h1>
+  <p class="text-sm text-warm">书海拾贝 · 共 {{ pagination.total }} 条</p>
+</section>
+
+{# 搜索框 #}
+<form method="get" action="{{ url_for('annotations.global_list') }}" class="mb-8">
+  <div class="relative">
+    <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-warm pointer-events-none"></i>
+    <input type="text" name="q" value="{{ q }}"
+           placeholder="按原文关键词检索批注…"
+           class="w-full pl-10 pr-4 py-2.5 text-sm bg-white border border-border rounded-lg placeholder:text-warm/70"
+           autocomplete="off" />
+  </div>
+</form>
+
+{% if annotations %}
+  <ul class="space-y-4">
+    {% for a in annotations %}
+      {% set band = color_map.get((a.color or '').lower(), color_map['sakura']) %}
+      <li class="bg-white border border-border rounded-lg shadow-soft overflow-hidden">
+        <div class="h-1" style="background-color: {{ band }};"></div>
+        <div class="p-5">
+          <div class="flex items-center justify-between mb-2">
+            <a href="{{ url_for('books.detail', book_id=a.book_id) }}"
+               class="text-sm font-serif text-ink hover:text-matcha transition-colors truncate">
+              {{ a.book.title }}
+            </a>
+            <span class="text-xs text-warm flex items-center gap-2">
+              <span class="inline-block w-2.5 h-2.5 rounded-full" style="background-color: {{ band }};" title="{{ a.color }}"></span>
+              <span>{{ a.created_at.strftime('%Y-%m-%d %H:%M') if a.created_at else '' }}</span>
+            </span>
+          </div>
+          <blockquote class="border-l-2 border-border pl-3 text-sm text-ink/90 font-serif leading-relaxed">
+            {% set quote_preview = a.quote if a.quote|length <= 140 else a.quote[:140] + '…' %}
+            {{ quote_preview }}
+          </blockquote>
+          {% if a.note %}
+            <p class="mt-3 text-sm text-warm leading-relaxed">{{ a.note }}</p>
+          {% endif %}
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+
+  {# 分页 #}
+  {% if pagination.pages > 1 %}
+  <nav class="mt-10 flex items-center justify-center gap-2">
+    {% if pagination.has_prev %}
+      <a href="{{ url_for('annotations.global_list', page=pagination.prev_num, q=q or None) }}"
+         class="px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-cream text-ink">← 上一页</a>
+    {% endif %}
+    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+      {% if p %}
+        {% if p == pagination.page %}
+          <span class="px-3 py-1.5 text-sm border border-matcha bg-matcha/20 rounded-lg text-ink font-medium">{{ p }}</span>
+        {% else %}
+          <a href="{{ url_for('annotations.global_list', page=p, q=q or None) }}"
+             class="px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-cream text-ink">{{ p }}</a>
+        {% endif %}
+      {% else %}
+        <span class="px-2 text-warm">…</span>
+      {% endif %}
+    {% endfor %}
+    {% if pagination.has_next %}
+      <a href="{{ url_for('annotations.global_list', page=pagination.next_num, q=q or None) }}"
+         class="px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-cream text-ink">下一页 →</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+
+{% else %}
+  <div class="py-24 text-center">
+    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-cream mb-4">
+      <i data-lucide="highlighter" class="w-7 h-7 text-warm"></i>
+    </div>
+    <p class="font-serif text-lg text-ink mb-2">
+      {% if q %}没有匹配的批注{% else %}还没有任何批注{% endif %}
+    </p>
+    <p class="text-sm text-warm">
+      {% if q %}试试别的关键词{% else %}打开一本书,在阅读器中选中文字即可标注{% endif %}
+    </p>
+  </div>
+{% endif %}
+
+{% endblock %}
