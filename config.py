@@ -19,10 +19,12 @@ class Config:
     # 分页默认每页数量
     BOOKS_PER_PAGE = 24
 
-    # ---------------------------- EPUB 上传 ----------------------------
-    # 上传文件夹名（相对于 app.instance_path → instance/epubs/）
+    # ---------------------------- 书籍文件上传 ----------------------------
+    # 上传文件夹名(历史命名沿用 epubs/,文件夹下含各格式;改名要迁移磁盘,得不偿失)
     EPUB_UPLOAD_FOLDER_NAME = "epubs"
-    # 允许的上传后缀
-    ALLOWED_EPUB_EXTENSIONS = {"epub"}
+    # 允许上传的格式:epub 是一等公民,其他格式可上传/下载但暂不支持在线阅读
+    ALLOWED_BOOK_EXTENSIONS = {"epub", "pdf", "txt", "mobi"}
+    # 兼容旧代码引用(已废弃,新代码请用 ALLOWED_BOOK_EXTENSIONS)
+    ALLOWED_EPUB_EXTENSIONS = ALLOWED_BOOK_EXTENSIONS
     # 单文件最大 100 MB
     MAX_CONTENT_LENGTH = 100 * 1024 * 1024

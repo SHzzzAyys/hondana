@@ -63,8 +63,12 @@ class Book(db.Model):
     rating = db.Column(db.Integer)  # 1-5, 可为空
 
     # EPUB 原始文件名（用户上传时的名字，用于显示和下载）
-    # 磁盘上的实际文件统一存为 instance/epubs/{book_id}.epub
+    # 磁盘上的实际文件统一存为 instance/epubs/{book_id}.{ext}
     epub_filename = db.Column(db.String(260))
+
+    # 文件格式 (epub / pdf / txt / mobi / other) - 仅在上传文件后非空
+    # epub 仍是一等公民,其他格式当前只支持上传+下载,在线阅读会引导用户下载
+    file_format = db.Column(db.String(16))
 
     # 阅读进度记忆
     last_read_cfi = db.Column(db.String(500))

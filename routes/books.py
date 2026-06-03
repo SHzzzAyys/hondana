@@ -101,54 +101,99 @@ def _parse_rating(raw):
     return None
 
 
-# ---------------------------- EPUB 辅助 ----------------------------
+# ---------------------------- 书籍文件辅助(原 EPUB 专用,P1-1 扩展为多格式) ----------------------------
+
+# 格式对应的下载 MIME(用于 Content-Type / 浏览器下载)
+_FORMAT_MIME = {
+    "epub": "application/epub+zip",
+    "pdf": "application/pdf",
+    "txt": "text/plain; charset=utf-8",
+    "mobi": "application/x-mobipocket-ebook",
+}
+
 
 def _epub_dir():
-    """返回 epub 上传目录绝对路径"""
+    """返回书籍文件上传目录绝对路径(历史命名沿用 epubs/,实际可放任何格式)"""
     return current_app.config["EPUB_UPLOAD_FOLDER"]
 
 
-def _epub_disk_path(book_id):
-    """书的磁盘存储路径（统一用 {id}.epub）"""
-    return os.path.join(_epub_dir(), f"{book_id}.epub")
-
-
-def _is_allowed_epub(filename):
-    """校验后缀"""
+def _file_ext_of(filename):
+    """从文件名提取小写后缀(无后缀返回 '')"""
     if not filename or "." not in filename:
+        return ""
+    return filename.rsplit(".", 1)[1].lower()
+
+
+def _book_disk_path(book):
+    """书的磁盘存储路径,按 file_format 决定后缀;未上传时返回基于 epub 的旧路径(兼容)"""
+    ext = (book.file_format or "epub").lower()
+    return os.path.join(_epub_dir(), f"{book.id}.{ext}")
+
+
+def _find_book_file(book_id):
+    """按 ID 查找已上传的书籍文件(任何格式),排除封面文件;无则 None"""
+    pattern = os.path.join(_epub_dir(), f"{book_id}.*")
+    for p in sorted(glob.glob(pattern)):
+        if ".cover." not in os.path.basename(p):
+            return p
+    return None
+
+
+def _delete_book_files_by_id(book_id):
+    """按 ID 删除该书所有上传文件(任何格式 + 全部封面),忽略不存在"""
+    pattern = os.path.join(_epub_dir(), f"{book_id}.*")
+    for p in glob.glob(pattern):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
+
+def _is_allowed_book(filename):
+    """校验后缀属于支持的格式"""
+    ext = _file_ext_of(filename)
+    if not ext:
         return False
-    ext = filename.rsplit(".", 1)[1].lower()
-    allowed = current_app.config.get("ALLOWED_EPUB_EXTENSIONS", {"epub"})
+    allowed = current_app.config.get(
+        "ALLOWED_BOOK_EXTENSIONS",
+        current_app.config.get("ALLOWED_EPUB_EXTENSIONS", {"epub"}),
+    )
     return ext in allowed
 
 
 def _handle_epub_upload(book, file_storage, remove_flag):
-    """处理表单中的 EPUB 上传 / 删除请求。"""
+    """处理表单中的书籍文件上传 / 删除请求(EPUB / PDF / TXT / MOBI)。
+
+    旧名沿用,内部已多格式化。删除时清掉所有 {id}.* 包括旧 epub 与封面。
+    """
     if remove_flag:
-        path = _epub_disk_path(book.id)
-        if os.path.exists(path):
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-        _delete_cover_files(book.id)
+        _delete_book_files_by_id(book.id)
         book.epub_filename = None
+        book.file_format = None
 
     if file_storage is None or not file_storage.filename:
         return None
 
-    if not _is_allowed_epub(file_storage.filename):
-        return "仅支持上传 .epub 格式的文件"
+    if not _is_allowed_book(file_storage.filename):
+        return "仅支持上传 .epub / .pdf / .txt / .mobi 格式的文件"
 
-    safe_name = secure_filename(file_storage.filename) or "book.epub"
-    target = _epub_disk_path(book.id)
+    ext = _file_ext_of(file_storage.filename)
+    safe_name = secure_filename(file_storage.filename) or f"book.{ext}"
+
+    # 切换格式前,先清掉旧文件(避免 {id}.epub 与 {id}.pdf 共存)
+    _delete_book_files_by_id(book.id)
+
+    book.file_format = ext
+    target = _book_disk_path(book)
     try:
         file_storage.save(target)
     except OSError as e:
         return f"文件保存失败：{e}"
 
     book.epub_filename = safe_name
-    _extract_and_save_cover(book.id, target)
+    # 仅 EPUB 能提取封面,其他格式留给用户自己设 cover_url
+    if ext == "epub":
+        _extract_and_save_cover(book.id, target)
     return None
 
 
@@ -190,14 +235,8 @@ def _find_cover_file(book_id):
 
 
 def _delete_epub_file(book_id):
-    """删除 book 对应的磁盘 epub 文件与封面(忽略不存在)"""
-    path = _epub_disk_path(book_id)
-    if os.path.exists(path):
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-    _delete_cover_files(book_id)
+    """删除 book 对应的磁盘文件与封面(忽略不存在)。沿用旧名,行为已多格式。"""
+    _delete_book_files_by_id(book_id)
 
 
 def _apply_book_data(book, data):
@@ -648,32 +687,40 @@ def _make_snippet(content, q, radius=40):
 
 @bp.route("/books/<int:book_id>/read")
 def read(book_id):
-    """在线阅读页（epub.js）"""
+    """在线阅读页(epub.js)。非 EPUB 格式当前引导到详情页下载。"""
     book = Book.query.get_or_404(book_id)
     if not book.epub_filename:
-        flash("这本书还没有上传 EPUB 文件", "error")
+        flash("这本书还没有上传文件", "error")
         return redirect(url_for("books.detail", book_id=book.id))
-    if not os.path.exists(_epub_disk_path(book.id)):
-        flash("EPUB 文件丢失，请重新上传", "error")
+    if (book.file_format or "epub") != "epub":
+        flash(
+            f"{book.file_format.upper()} 格式暂不支持在线阅读,请下载到本地查看",
+            "error",
+        )
+        return redirect(url_for("books.detail", book_id=book.id))
+    if not _find_book_file(book.id):
+        flash("书籍文件丢失，请重新上传", "error")
         return redirect(url_for("books.edit", book_id=book.id))
     return render_template("reader.html", book=book)
 
 
 @bp.route("/books/<int:book_id>/epub")
 def epub_file(book_id):
-    """流式返回 EPUB 二进制"""
+    """流式返回书籍文件(任意格式 - URL 历史名称沿用 /epub)"""
     book = Book.query.get_or_404(book_id)
     if not book.epub_filename:
         abort(404)
-    path = _epub_disk_path(book.id)
-    if not os.path.exists(path):
+    path = _find_book_file(book.id)
+    if not path:
         abort(404)
 
+    fmt = (book.file_format or "epub").lower()
+    mimetype = _FORMAT_MIME.get(fmt, "application/octet-stream")
     as_download = request.args.get("download") == "1"
     return send_from_directory(
         _epub_dir(),
-        f"{book.id}.epub",
-        mimetype="application/epub+zip",
+        os.path.basename(path),
+        mimetype=mimetype,
         as_attachment=as_download,
         download_name=book.epub_filename,
         conditional=True,

@@ -90,31 +90,35 @@
     <p class="{{ hint_class }}">支持中/英文逗号分隔，标签会自动去重和创建</p>
   </div>
 
-  {# EPUB 上传 - 拖拽区域 #}
+  {# 书籍文件上传 - 支持 EPUB / PDF / TXT / MOBI #}
   <div class="mb-8 pt-5 border-t border-border">
     <label class="{{ label_class }}" for="epub_file">
-      EPUB 电子书 <span class="text-warm font-normal">（可选，≤ 100 MB）</span>
+      书籍文件 <span class="text-warm font-normal">（EPUB / PDF / TXT / MOBI，可选，≤ 100 MB）</span>
     </label>
 
     {% if mode == 'edit' and book and book.epub_filename %}
       <div class="flex items-center gap-3 bg-cream border border-border rounded-lg px-3 py-2 mb-2">
         <i data-lucide="book-open" class="w-4 h-4 text-matcha"></i>
         <span class="text-sm text-ink truncate">{{ book.epub_filename }}</span>
+        {% if book.file_format %}
+        <span class="text-xs px-1.5 py-0.5 rounded bg-sky/40 text-ink uppercase">{{ book.file_format }}</span>
+        {% endif %}
         <label class="ml-auto text-xs text-warm flex items-center gap-1.5 cursor-pointer">
           <input type="checkbox" name="remove_epub" value="1" class="rounded border-border" />
           <span>移除此文件</span>
         </label>
       </div>
-      <p class="{{ hint_class }}">选择新文件上传将覆盖当前 EPUB</p>
+      <p class="{{ hint_class }}">选择新文件上传将覆盖当前文件</p>
     {% endif %}
 
     {# 拖拽上传区域 #}
     <div id="epub-drop-zone"
          class="relative border-2 border-dashed border-border rounded-lg p-8 text-center transition-colors hover:border-matcha cursor-pointer mb-2">
       <i data-lucide="upload" class="w-8 h-8 text-warm mx-auto mb-2"></i>
-      <p class="text-sm text-ink mb-1">拖拽 EPUB 文件到此处</p>
-      <p class="text-xs text-warm">或点击选择文件</p>
-      <input id="epub_file" name="epub_file" type="file" accept=".epub,application/epub+zip"
+      <p class="text-sm text-ink mb-1">拖拽书籍文件到此处</p>
+      <p class="text-xs text-warm">支持 .epub / .pdf / .txt / .mobi</p>
+      <input id="epub_file" name="epub_file" type="file"
+             accept=".epub,.pdf,.txt,.mobi,application/epub+zip,application/pdf,text/plain,application/x-mobipocket-ebook"
              class="absolute inset-0 opacity-0 cursor-pointer" />
     </div>
     <div id="epub-file-name" class="hidden text-sm text-ink flex items-center gap-2 mb-2">
@@ -122,7 +126,7 @@
       <span id="epub-file-name-text"></span>
     </div>
     {% if errors.epub_file %}<p class="{{ error_class }}">{{ errors.epub_file }}</p>{% endif %}
-    <p class="{{ hint_class }}">上传后可在详情页点击「在线阅读」。选择文件后会自动识别书名、作者等信息。</p>
+    <p class="{{ hint_class }}">EPUB 上传后可在详情页「在线阅读」并自动提取元数据。其他格式仅支持下载。</p>
 
     <div id="epub-meta-status" class="hidden mt-3 text-sm rounded-lg px-3 py-2 border"></div>
   </div>

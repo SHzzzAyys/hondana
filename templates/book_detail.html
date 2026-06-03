@@ -147,16 +147,19 @@
     {# 操作按钮区 #}
     <div class="flex items-center gap-3 flex-wrap">
       {% if book.epub_filename %}
+        {% set _fmt = (book.file_format or 'epub')|lower %}
+        {% if _fmt == 'epub' %}
         <a href="{{ url_for('books.read', book_id=book.id) }}"
            class="px-4 py-2 text-sm border border-matcha bg-matcha/15 text-ink rounded-lg hover:bg-matcha/30 transition-colors flex items-center gap-2">
           <i data-lucide="book-open" class="w-4 h-4"></i>
           <span>在线阅读</span>
         </a>
+        {% endif %}
         <a href="{{ url_for('books.epub_file', book_id=book.id, download=1) }}"
            class="px-4 py-2 text-sm border border-border text-ink rounded-lg hover:bg-cream transition-colors flex items-center gap-2"
            title="下载 {{ book.epub_filename }}">
           <i data-lucide="download" class="w-4 h-4"></i>
-          <span>下载 EPUB</span>
+          <span>下载 {{ _fmt|upper }}</span>
         </a>
         {% if book.annotations|length > 0 %}
           <div class="relative group">
