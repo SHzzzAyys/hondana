@@ -176,6 +176,7 @@ def index():
         {
             "book": title,
             "milestone": rw.milestone,
+            "kind": rw.kind,
             "reflection": rw.reflection,
             "created_at": rw.created_at.strftime("%Y-%m-%d") if rw.created_at else "",
         }

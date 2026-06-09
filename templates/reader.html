@@ -109,7 +109,7 @@
     .ann-color-btn.active { border-color: #3D3D3D; }
     .ann-color-btn:hover { border-color: #8A8680; }
 
-    /* 里程碑奖励:樱花绽放 + 飘落花瓣 */
+    /* 里程碑奖励:小苗成长(放大弹出)+ 飘落叶片 */
     .reward-bloom { display: inline-block; transform-origin: 50% 70%; }
     .reward-bloom.bloom { animation: reward-bloom 0.9s cubic-bezier(0.34, 1.56, 0.64, 1); }
     @keyframes reward-bloom {
@@ -299,7 +299,7 @@
         <div id="progress-bar" class="h-full bg-matcha transition-all" style="width:0%"></div>
       </div>
       <span id="progress-percent">0%</span>
-      <span id="reader-flowers" class="flex items-center gap-1" title="本书已收获的樱花">🌸 <span id="reward-count">{{ reward_count|default(0) }}</span></span>
+      <span id="reader-flowers" class="flex items-center gap-1" title="这本书的阅读小苗（已成长次数，每 30 分钟一次）"><span id="reward-plant">🌱</span> <span id="reward-count">{{ reward_count|default(0) }}</span></span>
     </div>
   </div>
 </div>
@@ -348,7 +348,7 @@
   </div>
 </div>
 
-{# 里程碑奖励弹窗(🌸) #}
+{# 里程碑奖励弹窗(成长型小苗 🌱) #}
 <div id="reward-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/30">
   <div id="reward-petals" class="pointer-events-none fixed inset-0 overflow-hidden z-40"></div>
   <div class="relative bg-white border border-border rounded-lg shadow-lg w-full max-w-md mx-4">
@@ -356,8 +356,8 @@
       <i data-lucide="x" class="w-5 h-5"></i>
     </button>
     <div class="px-6 pt-7 pb-4 text-center">
-      <div id="reward-bloom" class="reward-bloom text-5xl mb-2">🌸</div>
-      <h3 id="reward-modal-title" class="text-base font-serif font-medium text-ink mb-1">收获一朵樱花</h3>
+      <div id="reward-bloom" class="reward-bloom text-5xl mb-2">🌱</div>
+      <h3 id="reward-modal-title" class="text-base font-serif font-medium text-ink mb-1">小苗又长大了</h3>
       <p class="text-xs text-warm">读到这里，写句此刻的感想吧（可跳过）</p>
     </div>
     <div class="px-6 pb-2">
@@ -673,7 +673,7 @@
         .then(function (data) {
           if (data && data.reward && data.reward.is_new) {
             updateRewardCount(data.reward.total_flowers);
-            showRewardModal(data.reward.reward_id, data.reward.minutes);
+            showRewardModal(data.reward.reward_id, data.reward.minutes, data.reward.total_flowers);
           }
         })
         .catch(function (e) { console.warn("[reader] reading time failed", e); });
@@ -1219,24 +1219,43 @@
     } catch (_) {}
   }
 
-  // ---------- 时间里程碑奖励(🌸,每读满 N 分钟一朵) ----------
-  function updateRewardCount(n) {
-    var el = document.getElementById("reward-count");
-    if (el && typeof n === "number") el.textContent = n;
+  // ---------- 时间里程碑奖励(成长型小苗,每读满 N 分钟成长一次) ----------
+  // 读得越多,本书的小苗长得越高:种子→新芽→幼苗→茁壮→小树→繁花
+  function plantStage(n) {
+    if (n >= 20) return { emoji: "🌸", label: "繁花满树" };
+    if (n >= 12) return { emoji: "🌳", label: "小树成荫" };
+    if (n >= 6)  return { emoji: "🪴", label: "茁壮成长" };
+    if (n >= 3)  return { emoji: "🌿", label: "抽枝展叶" };
+    if (n >= 1)  return { emoji: "🌱", label: "新芽冒头" };
+    return { emoji: "🌰", label: "一颗种子" };
   }
 
-  function showRewardModal(rewardId, minutes) {
+  function updateRewardCount(n) {
+    if (typeof n !== "number") return;
+    var cnt = document.getElementById("reward-count");
+    if (cnt) cnt.textContent = n;
+    var plant = document.getElementById("reward-plant");
+    if (plant) plant.textContent = plantStage(n).emoji;
+  }
+
+  function showRewardModal(rewardId, minutes, count) {
     var modal = document.getElementById("reward-modal");
     var title = document.getElementById("reward-modal-title");
     var note = document.getElementById("reward-modal-note");
     var bloom = document.getElementById("reward-bloom");
     if (!modal) return;
-    if (title) title.textContent = "已阅读 " + minutes + " 分钟 · 收获一朵樱花";
+    var n = typeof count === "number" ? count : 0;
+    var stage = plantStage(n);
+    var grew = n >= 1 && plantStage(n).emoji !== plantStage(n - 1).emoji;  // 是否进阶到新形态
+    if (bloom) bloom.textContent = stage.emoji;
+    if (title) {
+      title.textContent = "专注阅读 " + minutes + " 分钟 · " + stage.label + (grew ? " ↑ 小苗长大了" : "");
+    }
     if (note) note.value = "";
     modal.dataset.rewardId = rewardId == null ? "" : String(rewardId);
     modal.classList.remove("hidden");
     if (bloom) { bloom.classList.remove("bloom"); void bloom.offsetWidth; bloom.classList.add("bloom"); }
-    spawnPetals();
+    spawnLeaves();
     setTimeout(function () { try { note && note.focus(); } catch (_) {} }, 350);
   }
 
@@ -1260,18 +1279,18 @@
     if (modal) modal.classList.add("hidden");
   }
 
-  function spawnPetals() {
+  function spawnLeaves() {
     var layer = document.getElementById("reward-petals");
     if (!layer) return;
     layer.innerHTML = "";
     for (var i = 0; i < 12; i++) {
-      var petal = document.createElement("span");
-      petal.className = "petal";
-      petal.textContent = "🌸";
-      petal.style.left = (Math.random() * 100) + "%";
-      petal.style.animationDelay = (Math.random() * 0.6) + "s";
-      petal.style.fontSize = (12 + Math.random() * 14) + "px";
-      layer.appendChild(petal);
+      var leaf = document.createElement("span");
+      leaf.className = "petal";
+      leaf.textContent = "🍃";
+      leaf.style.left = (Math.random() * 100) + "%";
+      leaf.style.animationDelay = (Math.random() * 0.6) + "s";
+      leaf.style.fontSize = (12 + Math.random() * 14) + "px";
+      layer.appendChild(leaf);
     }
     setTimeout(function () { layer.innerHTML = ""; }, 2800);
   }
@@ -1283,6 +1302,9 @@
     if (save) save.addEventListener("click", saveRewardReflection);
     if (skip) skip.addEventListener("click", closeRewardModal);
     if (close) close.addEventListener("click", closeRewardModal);
+    // 初始化:按本书已有里程碑数渲染小苗当前形态
+    var cntEl = document.getElementById("reward-count");
+    updateRewardCount(cntEl ? (parseInt(cntEl.textContent, 10) || 0) : 0);
   })();
 })();
 </script>

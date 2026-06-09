@@ -99,18 +99,18 @@
   {# 阅读奖励 #}
   <div class="bg-white border border-border rounded-lg shadow-soft p-6">
     <h2 class="font-serif text-lg text-ink mb-4 flex items-center gap-2">
-      <span class="text-lg leading-none">🌸</span>
+      <span class="text-lg leading-none">🌱</span>
       <span>阅读奖励</span>
     </h2>
     <div>
-      <label class="block text-sm text-ink mb-1.5 font-medium" for="reward-interval">每读满多少分钟奖励一朵樱花</label>
+      <label class="block text-sm text-ink mb-1.5 font-medium" for="reward-interval">每读满多少分钟，小苗成长一次</label>
       <div class="flex items-center gap-2">
         <input id="reward-interval" type="number" min="1" max="240"
                value="{{ settings.get('reward_interval_minutes', 30) }}"
                class="w-32 px-3.5 py-2.5 text-sm bg-white border border-border rounded-lg" />
         <span class="text-sm text-warm">分钟</span>
       </div>
-      <p class="text-xs text-warm mt-1">阅读累计每满该时长，弹出一朵🌸和可跳过的感想框。调大可减少打扰。</p>
+      <p class="text-xs text-warm mt-1">每满该时长，本书的小苗长大一点（🌱→🌳）并弹出可跳过的感想框。调大可减少打扰。</p>
     </div>
   </div>
 

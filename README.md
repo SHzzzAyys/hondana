@@ -77,10 +77,10 @@ Personal EPUB bookshelf & online reader with Japanese-minimalist design.
 <tr>
 <td>
 
-### 🌸 Reading Rewards
-- Earn a cherry blossom every 30 min of reading (interval configurable)
-- A gentle, **skippable** reflection prompt at each milestone
-- Per-book flower collection — read more, collect a branch of blossoms
+### 🌱 Reading Rewards
+- Grow a per-book seedling — it levels up (🌱→🌿→🪴→🌳→🌸) every 30 min of reading (interval configurable)
+- A gentle, **skippable** reflection prompt at each growth step
+- The more you read a book, the taller its little plant grows
 
 </td>
 <td>

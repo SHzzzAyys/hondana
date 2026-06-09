@@ -39,7 +39,7 @@
         <span class="text-border">·</span>
         <span>共 <span class="text-ink font-medium">{{ active_days }}</span> 天</span>
         <span class="text-border">·</span>
-        <span class="text-sakura">🌸 <span class="font-medium">{{ total_flowers }}</span></span>
+        <span class="text-matcha" title="累计阅读里程碑(每 30 分钟一次)">🌱 <span class="font-medium">{{ total_flowers }}</span></span>
       </div>
     </div>
     <p class="text-xs text-warm mb-4">颜色越深 = 当天读得越久（按分钟）</p>
@@ -59,8 +59,10 @@
         <ul class="space-y-2.5">
           {% for r in recent_reflections %}
             <li class="text-sm">
-              <span class="text-sakura">🌸</span>
-              <span class="text-warm text-xs">{{ r.book }} · 第 {{ r.milestone }} 页 · {{ r.created_at }}</span>
+              <span class="text-matcha">🌿</span>
+              <span class="text-warm text-xs">{{ r.book }} ·
+                {% if r.kind == 'page' %}第 {{ r.milestone }} 页{% else %}读满 {{ r.milestone }} 分钟{% endif %}
+                · {{ r.created_at }}</span>
               <p class="text-ink leading-relaxed mt-0.5">{{ r.reflection }}</p>
             </li>
           {% endfor %}
