@@ -1,5 +1,6 @@
 """书籍相关路由"""
 import glob
+import json
 import os
 from datetime import datetime
 from io import BytesIO
@@ -21,6 +22,8 @@ from werkzeug.utils import secure_filename
 from epub_meta import cover_ext_from_mime, extract_epub_metadata
 from models import (
     Book,
+    ReadingDaily,
+    ReadingReward,
     Tag,
     STATUS_CHOICES,
     STATUS_FINISHED,
@@ -609,7 +612,14 @@ def read(book_id):
     if not os.path.exists(_epub_disk_path(book.id)):
         flash("EPUB 文件丢失，请重新上传", "error")
         return redirect(url_for("books.edit", book_id=book.id))
-    return render_template("reader.html", book=book)
+    # 本书已收获🌸 数量(时间里程碑奖励由服务端在心跳里判定,无需向前端传起点)
+    reward_count = (
+        db.session.query(db.func.count(ReadingReward.id))
+        .filter(ReadingReward.book_id == book.id)
+        .scalar()
+        or 0
+    )
+    return render_template("reader.html", book=book, reward_count=reward_count)
 
 
 @bp.route("/books/<int:book_id>/epub")
@@ -670,9 +680,73 @@ def update_progress(book_id):
     })
 
 
+DEFAULT_REWARD_INTERVAL_MIN = 30  # 每读满 N 分钟给一朵🌸(默认 30,可在设置里改)
+
+
+def _reward_interval_min():
+    """读取奖励间隔(分钟),来自 instance/settings.json,默认 30。"""
+    try:
+        path = os.path.join(current_app.instance_path, "settings.json")
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                val = int(json.load(f).get("reward_interval_minutes", DEFAULT_REWARD_INTERVAL_MIN))
+                if val >= 1:
+                    return val
+    except (json.JSONDecodeError, OSError, ValueError, TypeError):
+        pass
+    return DEFAULT_REWARD_INTERVAL_MIN
+
+
+def _maybe_award_time_reward(book):
+    """累计阅读时长每满 interval 分钟给一朵🌸(kind='time')。返回 reward dict 或 None。
+
+    以"基线之后新增的阅读时长"为准:首次见到本书把基线置为当时累计时长,历史时长
+    (含挂机虚高)不补发;之后每满 interval 分钟一朵。时长随心跳缓慢累加,稳态下每次
+    至多跨一个边界、不打断阅读。不在此 commit —— 由调用方统一提交。
+    """
+    interval = _reward_interval_min()
+    total = book.total_reading_seconds or 0
+    if book.reward_time_base is None:
+        book.reward_time_base = total  # 首次见到本书:以"现在"为计时起点,历史时长不补发
+        return None
+    elapsed_min = max(0, total - book.reward_time_base) // 60
+    milestone = (elapsed_min // interval) * interval
+    if milestone < interval:
+        return None
+    old_max = (
+        db.session.query(db.func.coalesce(db.func.max(ReadingReward.milestone), 0))
+        .filter(ReadingReward.book_id == book.id, ReadingReward.kind == "time")
+        .scalar()
+        or 0
+    )
+    if milestone <= old_max:
+        return None
+    rows = []
+    for m in range(old_max + interval, milestone + 1, interval):
+        rw = ReadingReward(book_id=book.id, milestone=m, kind="time", reward_type="sakura")
+        db.session.add(rw)
+        rows.append(rw)
+    if not rows:
+        return None
+    db.session.flush()  # 拿到 id(本次 commit 前)
+    latest = rows[-1]
+    total_flowers = (
+        db.session.query(db.func.count(ReadingReward.id))
+        .filter(ReadingReward.book_id == book.id)
+        .scalar()
+        or 0
+    )
+    return {
+        "is_new": True,
+        "reward_id": latest.id,
+        "minutes": latest.milestone,
+        "total_flowers": total_flowers,
+    }
+
+
 @bp.route("/books/<int:book_id>/reading-time", methods=["PATCH"])
 def update_reading_time(book_id):
-    """累加阅读秒数"""
+    """累加阅读秒数 + 判定时间里程碑奖励(每满 N 分钟一朵🌸)"""
     book = Book.query.get_or_404(book_id)
     data = request.get_json(silent=True) or {}
     seconds = data.get("seconds", 0)
@@ -680,10 +754,21 @@ def update_reading_time(book_id):
         seconds = int(seconds)
     except (ValueError, TypeError):
         seconds = 0
+    reward = None
     if seconds > 0:
         book.total_reading_seconds = (book.total_reading_seconds or 0) + seconds
+        # 顺手累加到"今天"的每日聚合(阅读热力图数据源)。
+        # 用本地日期而非 utcnow,避免清晨阅读被算到前一天、破坏连续天数。
+        today = datetime.now().date()
+        row = ReadingDaily.query.filter_by(date=today).first()
+        if row is None:
+            row = ReadingDaily(date=today, seconds=0, pages=0)
+            db.session.add(row)
+        row.seconds = (row.seconds or 0) + seconds
+        # 时间里程碑奖励(每满 N 分钟一朵🌸)
+        reward = _maybe_award_time_reward(book)
         db.session.commit()
-    return jsonify({"ok": True, "total": book.total_reading_seconds or 0})
+    return jsonify({"ok": True, "total": book.total_reading_seconds or 0, "reward": reward})
 
 
 @bp.route("/books/<int:book_id>/cover")

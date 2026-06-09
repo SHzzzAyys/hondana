@@ -8,6 +8,8 @@ from flask import Blueprint, current_app, render_template
 
 from models import (
     Book,
+    ReadingDaily,
+    ReadingReward,
     Tag,
     STATUS_FINISHED,
     STATUS_READING,
@@ -115,6 +117,71 @@ def index():
         "hours": [round((b.total_reading_seconds or 0) / 3600, 1) for b in reading_time_books],
     }
 
+    # ---- 阅读热力图(记录板)+ 连续天数 + 🌸 ----
+    # 数据源:ReadingDaily(每日阅读秒数,由阅读器心跳累加)。
+    # 用本地日期口径,和写入端(books.update_reading_time)保持一致。
+    today_local = datetime.now().date()
+    hm_start = today_local - timedelta(days=370)  # 近 ~53 周
+    daily_rows = (
+        ReadingDaily.query.filter(ReadingDaily.date >= hm_start)
+        .order_by(ReadingDaily.date)
+        .all()
+    )
+    by_date = {r.date: r for r in daily_rows}
+    # ECharts calendar-heatmap 数据:[["2026-06-06", 42(分钟)], ...]
+    heatmap_data = [
+        [d.isoformat(), round((r.seconds or 0) / 60)]
+        for d, r in sorted(by_date.items())
+        if (r.seconds or 0) > 0
+    ]
+    heatmap_max = max((v for _, v in heatmap_data), default=0)
+    heatmap_range = [hm_start.isoformat(), today_local.isoformat()]
+
+    # 活跃天集合(当天有阅读)
+    active_dates = {d for d, r in by_date.items() if (r.seconds or 0) > 0}
+    active_days = len(active_dates)
+
+    # 当前连续天数:从今天(或昨天)往回数连续有阅读的天
+    current_streak = 0
+    cursor = today_local
+    if today_local not in active_dates:
+        cursor = today_local - timedelta(days=1)  # 今天还没读,从昨天起算不算断
+    while cursor in active_dates:
+        current_streak += 1
+        cursor -= timedelta(days=1)
+
+    # 最长连续天数
+    longest_streak = 0
+    run = 0
+    prev = None
+    for d in sorted(active_dates):
+        if prev is not None and (d - prev).days == 1:
+            run += 1
+        else:
+            run = 1
+        longest_streak = max(longest_streak, run)
+        prev = d
+
+    # 🌸 总数 + 最近的感想
+    total_flowers = db.session.query(db.func.count(ReadingReward.id)).scalar() or 0
+    recent_reward_rows = (
+        db.session.query(ReadingReward, Book.title)
+        .join(Book, Book.id == ReadingReward.book_id)
+        .filter(ReadingReward.reflection.isnot(None), ReadingReward.reflection != "")
+        .order_by(ReadingReward.created_at.desc())
+        .limit(8)
+        .all()
+    )
+    recent_reflections = [
+        {
+            "book": title,
+            "milestone": rw.milestone,
+            "reflection": rw.reflection,
+            "created_at": rw.created_at.strftime("%Y-%m-%d") if rw.created_at else "",
+        }
+        for rw, title in recent_reward_rows
+    ]
+
     # 阅读目标
     settings = _load_settings()
     reading_goal = settings.get("reading_goal_yearly", 0)
@@ -161,4 +228,12 @@ def index():
         reading_goal=reading_goal,
         finished_this_year=finished_this_year,
         current_year=current_year,
+        heatmap_data=heatmap_data,
+        heatmap_range=heatmap_range,
+        heatmap_max=heatmap_max,
+        current_streak=current_streak,
+        longest_streak=longest_streak,
+        active_days=active_days,
+        total_flowers=total_flowers,
+        recent_reflections=recent_reflections,
     )

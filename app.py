@@ -46,6 +46,7 @@ def create_app(config_class=Config, instance_path=None):
     from routes.bookmarks import bp as bookmarks_bp
     from routes.translate import bp as translate_bp
     from routes.shelves import bp as shelves_bp
+    from routes.rewards import bp as rewards_bp
 
     app.register_blueprint(books_bp)
     app.register_blueprint(notes_bp)
@@ -54,6 +55,7 @@ def create_app(config_class=Config, instance_path=None):
     app.register_blueprint(bookmarks_bp)
     app.register_blueprint(translate_bp)
     app.register_blueprint(shelves_bp)
+    app.register_blueprint(rewards_bp)
 
     # 注册 CLI 命令
     register_commands(app)
@@ -65,6 +67,41 @@ def create_app(config_class=Config, instance_path=None):
     _auto_backup(app)
 
     return app
+
+
+def _migrate_reading_rewards(db):
+    """reading_rewards 加 kind 列 + 把唯一约束改成 (book_id, kind, milestone)。
+
+    SQLite 不能直接改约束,用"重建表"迁移:重命名旧表 → 按新 model 重建 →
+    旧行以 kind='page' 拷回 → 删旧表。非破坏性,保留全部旧 🌸 和感想。
+    需在 app 上下文中调用。已迁移(有 kind 列)则跳过。返回是否实际迁移。
+    """
+    inspector = inspect(db.engine)
+    if "reading_rewards" not in inspector.get_table_names():
+        return False
+    cols = {c["name"] for c in inspector.get_columns("reading_rewards")}
+    if "kind" in cols:
+        return False
+    with db.engine.begin() as conn:
+        conn.execute(text("ALTER TABLE reading_rewards RENAME TO reading_rewards_old"))
+        # 旧表上的具名索引(如 ix_reading_rewards_book_id)会随表一起改名保留并占用原名,
+        # 与下面 create_all 要建的同名索引冲突 → 先删掉(旧表即将丢弃)。
+        leftover = conn.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='index' "
+            "AND tbl_name='reading_rewards_old' AND name NOT LIKE 'sqlite_%'"
+        )).fetchall()
+        for (name,) in leftover:
+            conn.execute(text(f'DROP INDEX IF EXISTS "{name}"'))
+    db.create_all()  # 用新 schema 重建 reading_rewards(含 kind + 新约束)
+    with db.engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO reading_rewards "
+            "(id, book_id, milestone, kind, reward_type, reflection, created_at) "
+            "SELECT id, book_id, milestone, 'page', reward_type, reflection, created_at "
+            "FROM reading_rewards_old"
+        ))
+        conn.execute(text("DROP TABLE reading_rewards_old"))
+    return True
 
 
 def _auto_backup(app):
@@ -187,6 +224,8 @@ def register_commands(app):
                 missing.append(("total_reading_seconds", "INTEGER DEFAULT 0"))
             if "deleted_at" not in columns:
                 missing.append(("deleted_at", "DATETIME"))
+            if "reward_time_base" not in columns:
+                missing.append(("reward_time_base", "INTEGER"))
             if missing:
                 with db.engine.begin() as conn:
                     for name, coldef in missing:
@@ -207,7 +246,8 @@ def register_commands(app):
         inspector = inspect(db.engine)
         tables = set(inspector.get_table_names())
         created_something = False
-        for tbl in ("annotations", "bookmarks", "shelves", "shelf_books"):
+        for tbl in ("annotations", "bookmarks", "shelves", "shelf_books",
+                    "reading_daily", "reading_rewards"):
             if tbl not in tables:
                 created_something = True
         if created_something:
@@ -215,6 +255,10 @@ def register_commands(app):
             click.echo("[OK] created missing tables")
         else:
             click.echo("[SKIP] all tables present")
+
+        # 4) reading_rewards 加 kind 列(旧 page 数据保留)
+        if _migrate_reading_rewards(db):
+            click.echo("[OK] migrated reading_rewards (added kind)")
 
     @app.cli.command("purge-deleted")
     @click.option("--days", default=30, help="清理多少天前软删除的数据")

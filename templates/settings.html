@@ -24,12 +24,16 @@
         <select id="translate-engine"
                 class="w-full px-3.5 py-2.5 text-sm bg-white border border-border rounded-lg">
           <option value="google" {% if settings.get('translate_engine', 'google') == 'google' %}selected{% endif %}>
-            Google 翻译（免费）
+            Google 翻译（免费 · 双向中英）
           </option>
           <option value="deepseek" {% if settings.get('translate_engine') == 'deepseek' %}selected{% endif %}>
-            DeepSeek AI（需要 API Key）
+            DeepSeek AI（需要 API Key · 国内直连）
+          </option>
+          <option value="ollama" {% if settings.get('translate_engine') == 'ollama' %}selected{% endif %}>
+            本地 Ollama（离线 · 最稳）
           </option>
         </select>
+        <p class="text-xs text-warm mt-1.5">任一引擎失败会自动尝试其它已配置引擎，尽量给出译文。</p>
       </div>
 
       <div id="deepseek-config" class="{% if settings.get('translate_engine') != 'deepseek' %}hidden{% endif %}">
@@ -45,6 +49,33 @@
           </button>
         </div>
         <p class="text-xs text-warm mt-1">API Key 仅保存在本地，不会上传到任何第三方</p>
+      </div>
+
+      <div id="ollama-config" class="{% if settings.get('translate_engine') != 'ollama' %}hidden{% endif %} grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm text-ink mb-1.5 font-medium" for="ollama-host">Ollama 地址</label>
+          <input id="ollama-host" type="text"
+                 value="{{ settings.get('ollama_host', 'http://localhost:11434') }}"
+                 placeholder="http://localhost:11434"
+                 class="w-full px-3.5 py-2.5 text-sm bg-white border border-border rounded-lg placeholder:text-warm/60" />
+        </div>
+        <div>
+          <label class="block text-sm text-ink mb-1.5 font-medium" for="ollama-model">模型名</label>
+          <input id="ollama-model" type="text"
+                 value="{{ settings.get('ollama_model', 'qwen2.5:7b') }}"
+                 placeholder="qwen2.5:7b"
+                 class="w-full px-3.5 py-2.5 text-sm bg-white border border-border rounded-lg placeholder:text-warm/60" />
+        </div>
+        <p class="text-xs text-warm sm:col-span-2">需先在本机运行 Ollama 并 <code class="bg-cream px-1 rounded">ollama pull</code> 对应模型。小模型可能混语，翻译推荐 qwen2.5:7b。</p>
+      </div>
+
+      {# 测试翻译 #}
+      <div class="pt-2 border-t border-border">
+        <button type="button" id="test-translate"
+                class="px-4 py-2 text-sm border border-sky text-ink rounded-lg hover:bg-sky/20 transition-colors flex items-center gap-1.5">
+          <i data-lucide="flask-conical" class="w-4 h-4"></i><span>测试当前引擎</span>
+        </button>
+        <div id="test-result" class="hidden mt-3 text-sm bg-cream border border-border rounded-lg px-3 py-2 leading-relaxed"></div>
       </div>
     </div>
   </div>
@@ -65,6 +96,24 @@
     </div>
   </div>
 
+  {# 阅读奖励 #}
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <h2 class="font-serif text-lg text-ink mb-4 flex items-center gap-2">
+      <span class="text-lg leading-none">🌸</span>
+      <span>阅读奖励</span>
+    </h2>
+    <div>
+      <label class="block text-sm text-ink mb-1.5 font-medium" for="reward-interval">每读满多少分钟奖励一朵樱花</label>
+      <div class="flex items-center gap-2">
+        <input id="reward-interval" type="number" min="1" max="240"
+               value="{{ settings.get('reward_interval_minutes', 30) }}"
+               class="w-32 px-3.5 py-2.5 text-sm bg-white border border-border rounded-lg" />
+        <span class="text-sm text-warm">分钟</span>
+      </div>
+      <p class="text-xs text-warm mt-1">阅读累计每满该时长，弹出一朵🌸和可跳过的感想框。调大可减少打扰。</p>
+    </div>
+  </div>
+
   {# 保存按钮 #}
   <div class="flex items-center gap-3">
     <button type="button" id="save-settings"
@@ -80,15 +129,22 @@
 (function () {
   const engineSelect = document.getElementById('translate-engine');
   const deepseekConfig = document.getElementById('deepseek-config');
+  const ollamaConfig = document.getElementById('ollama-config');
   const keyInput = document.getElementById('deepseek-key');
   const clearBtn = document.getElementById('clear-key');
+  const ollamaHost = document.getElementById('ollama-host');
+  const ollamaModel = document.getElementById('ollama-model');
   const goalInput = document.getElementById('reading-goal');
+  const rewardIntervalInput = document.getElementById('reward-interval');
   const saveBtn = document.getElementById('save-settings');
   const saveStatus = document.getElementById('save-status');
+  const testBtn = document.getElementById('test-translate');
+  const testResult = document.getElementById('test-result');
 
-  // 引擎切换时显示/隐藏 DeepSeek 配置
+  // 引擎切换时显示/隐藏对应配置
   engineSelect.addEventListener('change', function () {
     deepseekConfig.classList.toggle('hidden', this.value !== 'deepseek');
+    ollamaConfig.classList.toggle('hidden', this.value !== 'ollama');
   });
 
   // 清除 API Key
@@ -98,33 +154,70 @@
     keyInput.focus();
   });
 
-  // 保存
-  saveBtn.addEventListener('click', function () {
+  // 收集表单数据(供保存/测试复用)
+  function collectData() {
     const data = {
       translate_engine: engineSelect.value,
       reading_goal_yearly: parseInt(goalInput.value) || 0,
+      reward_interval_minutes: parseInt(rewardIntervalInput.value) || 30,
+      ollama_host: ollamaHost.value.trim(),
+      ollama_model: ollamaModel.value.trim(),
     };
-    // 只有当用户修改了 key 时才传(不是占位 ••••)
     const keyVal = keyInput.value.trim();
     if (keyVal && !keyVal.startsWith('••')) {
       data.deepseek_api_key = keyVal;
     } else if (keyVal === '') {
       data.deepseek_api_key = '';
     }
+    return data;
+  }
 
-    fetch('/api/settings/translate', {
+  function saveSettings() {
+    return fetch('/api/settings/translate', {
       method: 'PUT',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    })
-      .then(function (r) { return r.json(); })
+      body: JSON.stringify(collectData()),
+    }).then(function (r) { return r.json(); });
+  }
+
+  // 保存
+  saveBtn.addEventListener('click', function () {
+    saveSettings()
       .then(function () {
         saveStatus.classList.remove('hidden');
         setTimeout(function () { saveStatus.classList.add('hidden'); }, 2000);
       })
+      .catch(function (e) { alert('保存失败: ' + (e.message || e)); });
+  });
+
+  // 测试当前引擎:先保存(确保 key/host 生效),再用所选引擎翻译一句样例
+  testBtn.addEventListener('click', function () {
+    const engine = engineSelect.value;
+    const sample = 'The quick brown fox jumps over the lazy dog.';
+    testResult.classList.remove('hidden');
+    testResult.classList.remove('text-sakura');
+    testResult.textContent = '测试中…';
+    saveSettings()
+      .then(function () {
+        return fetch('/api/translate', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: sample, engine: engine }),
+        });
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) {
+          testResult.classList.add('text-sakura');
+          testResult.textContent = '✗ ' + data.error;
+        } else {
+          testResult.textContent = '✓ [' + (data.engine || engine) + '] ' + data.result;
+        }
+      })
       .catch(function (e) {
-        alert('保存失败: ' + (e.message || e));
+        testResult.classList.add('text-sakura');
+        testResult.textContent = '✗ 测试失败: ' + (e.message || e);
       });
   });
 })();

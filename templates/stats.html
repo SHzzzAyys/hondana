@@ -24,6 +24,52 @@
   {% endfor %}
 </section>
 
+{# 阅读记录板:GitHub 式热力图 #}
+<section class="mb-10">
+  <div class="bg-white border border-border rounded-lg shadow-soft p-6">
+    <div class="flex items-center justify-between mb-1 flex-wrap gap-3">
+      <h3 class="font-serif text-lg text-ink flex items-center gap-2">
+        <i data-lucide="flame" class="w-4 h-4 text-warm"></i>
+        <span>阅读记录板</span>
+      </h3>
+      <div class="flex items-center gap-2.5 text-xs text-warm">
+        <span>连续 <span class="text-ink font-medium">{{ current_streak }}</span> 天</span>
+        <span class="text-border">·</span>
+        <span>最长 <span class="text-ink font-medium">{{ longest_streak }}</span> 天</span>
+        <span class="text-border">·</span>
+        <span>共 <span class="text-ink font-medium">{{ active_days }}</span> 天</span>
+        <span class="text-border">·</span>
+        <span class="text-sakura">🌸 <span class="font-medium">{{ total_flowers }}</span></span>
+      </div>
+    </div>
+    <p class="text-xs text-warm mb-4">颜色越深 = 当天读得越久（按分钟）</p>
+    {% if heatmap_data %}
+      <div id="chart-heatmap" class="w-full" style="height: 180px;"></div>
+    {% else %}
+      <div class="py-10 text-center">
+        <p class="text-sm text-warm">还没有阅读记录。打开一本书读一会儿，这里就会亮起来 🌱</p>
+      </div>
+    {% endif %}
+
+    {% if recent_reflections %}
+      <div class="mt-5 pt-5 border-t border-border">
+        <p class="text-xs text-warm mb-3 flex items-center gap-1.5">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i><span>里程碑感想</span>
+        </p>
+        <ul class="space-y-2.5">
+          {% for r in recent_reflections %}
+            <li class="text-sm">
+              <span class="text-sakura">🌸</span>
+              <span class="text-warm text-xs">{{ r.book }} · 第 {{ r.milestone }} 页 · {{ r.created_at }}</span>
+              <p class="text-ink leading-relaxed mt-0.5">{{ r.reflection }}</p>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+  </div>
+</section>
+
 {# 阅读时长 + 目标 #}
 <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
   {# 阅读时长 #}
@@ -171,8 +217,20 @@
 {% endblock %}
 
 {% block scripts %}
-{% if has_data %}
 <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+<script>
+  // 阅读记录板(热力图)—— 与有无藏书统计数据无关,只要有阅读记录就渲染
+  const heatmapData = {{ heatmap_data|tojson }};
+  const heatmapRange = {{ heatmap_range|tojson }};
+  const heatmapMax = {{ heatmap_max|tojson }};
+  (function () {
+    var el = document.getElementById('chart-heatmap');
+    if (el && window.BookCharts && window.BookCharts.renderReadingHeatmap) {
+      window.BookCharts.renderReadingHeatmap(el, heatmapData, heatmapRange, heatmapMax);
+    }
+  })();
+</script>
+{% if has_data %}
 <script>
   const chartData = {{ chart_data|tojson }};
   const { renderStatusChart, renderYearlyChart, renderTagsChart, renderRatingChart, renderReadingTimeChart } = window.BookCharts;
