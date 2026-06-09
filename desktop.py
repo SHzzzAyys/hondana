@@ -62,18 +62,28 @@ def ensure_initial_setup(instance_path: str) -> None:
             to_add.append(("last_read_cfi", "VARCHAR(500)"))
         if "last_read_at" not in cols:
             to_add.append(("last_read_at", "DATETIME"))
+        if "reward_time_base" not in cols:
+            to_add.append(("reward_time_base", "INTEGER"))
         if to_add:
             with db.engine.begin() as conn:
                 for name, coldef in to_add:
                     conn.execute(text(f"ALTER TABLE books ADD COLUMN {name} {coldef}"))
             print(f"[setup] added columns: {[n for n, _ in to_add]}")
 
-        # 补齐缺失的表(annotations / bookmarks)
+        # 补齐缺失的表。无条件 create_all(幂等,只建不存在的表),
+        # 这样新增模型(annotations/bookmarks/reading_daily/reading_rewards 等)
+        # 都会在既有库上自动建出,既有数据不受影响。
         inspector = inspect(db.engine)
-        tables = set(inspector.get_table_names())
-        if "annotations" not in tables or "bookmarks" not in tables:
-            db.create_all()
-            print("[setup] created missing tables")
+        before = set(inspector.get_table_names())
+        db.create_all()
+        after = set(inspect(db.engine).get_table_names())
+        created = after - before
+        if created:
+            print(f"[setup] created missing tables: {sorted(created)}")
+
+        # reading_rewards 迁移:加 kind 列(旧 page 数据保留为 kind='page')
+        if app_module._migrate_reading_rewards(db):
+            print("[setup] migrated reading_rewards (added kind column)")
 
 
 # ---------------------------- Flask 线程 ----------------------------

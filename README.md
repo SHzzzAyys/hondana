@@ -41,17 +41,16 @@ Personal EPUB bookshelf & online reader with Japanese-minimalist design.
 <td>
 
 ### 🌐 Built-in Translation
-- Select text → instant translation
-- Google Translate (free, no key needed)
-- DeepSeek API (configurable in settings)
+- Select text → instant translation (中⇄英 auto-direction)
+- Three engines with auto-fallback: Google (free) · DeepSeek · local **Ollama** (offline)
+- Bypasses stale system proxies so it just works
 
 </td>
 <td>
 
 ### 📊 Reading Statistics
-- Status breakdown, rating distribution
-- Yearly reading trends, popular tags
-- Reading time tracking with heartbeat
+- Status breakdown, rating distribution, yearly trends, tags
+- Idle-aware reading-time tracking (pauses when you step away)
 - Annual reading goal with progress ring
 
 </td>
@@ -72,6 +71,24 @@ Personal EPUB bookshelf & online reader with Japanese-minimalist design.
 - Search across titles, authors, publishers, notes & annotations
 - Highlighted results with hit-type badges
 - Sort by relevance or time
+
+</td>
+</tr>
+<tr>
+<td>
+
+### 🌱 Reading Rewards
+- Grow a per-book seedling — it levels up (🌱→🌿→🪴→🌳→🌸) every 30 min of reading (interval configurable)
+- A gentle, **skippable** reflection prompt at each growth step
+- The more you read a book, the taller its little plant grows
+
+</td>
+<td>
+
+### 📅 Reading Heatmap
+- GitHub-style contribution calendar — color depth = minutes read that day
+- Current / longest reading streak & total active days
+- Recent milestone reflections gallery
 
 </td>
 </tr>
@@ -102,7 +119,7 @@ Typography: **Noto Serif SC** (headings) + **Noto Sans SC** (body) — clean CJK
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/shangzheng666/hondana.git
+git clone https://github.com/SHzzzAyys/hondana.git
 cd hondana
 pip install -r requirements.txt
 ```
@@ -127,10 +144,12 @@ flask seed
 ### 3. Run
 
 ```bash
-python app.py
+python app.py          # web mode → open http://127.0.0.1:5000
+# or
+python desktop.py      # desktop mode (native window via pywebview)
 ```
 
-Open **http://127.0.0.1:5000** in your browser.
+The desktop app auto-creates / migrates the database on launch — no manual `flask init-db` needed.
 
 ---
 
@@ -146,7 +165,7 @@ Open **http://127.0.0.1:5000** in your browser.
 | Quick status/rating | Book detail → dropdown (auto-saves on change) |
 | View stats | Nav → 「统计」 |
 | Manage shelves | Nav → 「书单」 |
-| Settings | Nav → 「设置」(translation engine, reading goal) |
+| Settings | Nav → 「设置」(translation engine + key/Ollama, reading goal, reward interval) |
 | Keyboard shortcuts | `←` `→` pages, `T` TOC, `B` bookmarks, `N` annotations, `+` `-` font size, `Esc` exit reader |
 
 ---
@@ -160,10 +179,10 @@ Charts        Apache ECharts
 Styling       Tailwind CSS (CDN)
 Icons         Lucide Icons (CDN)
 Fonts         Google Fonts (Noto Serif SC / Noto Sans SC)
-Translation   Google Translate API · DeepSeek Chat API
+Translation   Google Translate · DeepSeek Chat API · local Ollama (offline)
 ```
 
-Zero external services required — runs entirely offline (except CDN assets and translation).
+Zero external services required — translation can run fully offline via local Ollama.
 
 ---
 
@@ -173,7 +192,7 @@ Zero external services required — runs entirely offline (except CDN assets and
 hondana/
 ├── app.py                  # App factory, CLI commands, Jinja filters
 ├── config.py               # Configuration
-├── models.py               # Book, Note, Tag, Annotation, Bookmark, Shelf
+├── models.py               # Book, Note, Tag, Annotation, Bookmark, Shelf, ReadingDaily, ReadingReward
 ├── epub_meta.py            # EPUB metadata extraction
 ├── seed.py                 # Sample data seeder
 ├── requirements.txt
@@ -184,8 +203,9 @@ hondana/
 │   ├── annotations.py      # Highlights & annotations
 │   ├── bookmarks.py        # Bookmarks
 │   ├── shelves.py          # Custom shelves
-│   ├── stats.py            # Statistics & charts
-│   └── translate.py        # Translation API & settings
+│   ├── stats.py            # Statistics, charts & reading heatmap
+│   ├── translate.py        # Translation API & settings
+│   └── rewards.py          # Reading-reward reflections
 │
 ├── templates/
 │   ├── base.html           # Master layout

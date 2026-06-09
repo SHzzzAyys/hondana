@@ -225,6 +225,72 @@ function renderReadingTimeChart(el, names, hours) {
   window.addEventListener('resize', () => chart.resize());
 }
 
+/* 阅读热力图(记录板) - GitHub 式日历 + heatmap
+ * data:  [["2026-06-06", 42], ...]  (日期, 当天阅读分钟数)
+ * range: ["2025-06-01", "2026-06-06"]
+ * max:   最大分钟数(用于色阶上限提示)
+ */
+function renderReadingHeatmap(el, data, range, max) {
+  const chart = echarts.init(el);
+  chart.setOption({
+    textStyle: BASE_TEXT_STYLE,
+    backgroundColor: 'transparent',
+    tooltip: {
+      backgroundColor: '#FFFFFF',
+      borderColor: PALETTE.border,
+      borderWidth: 1,
+      textStyle: BASE_TEXT_STYLE,
+      padding: [8, 12],
+      formatter: function (p) {
+        const v = (p.value && p.value[1]) || 0;
+        return p.value[0] + '<br/>阅读 ' + v + ' 分钟';
+      },
+    },
+    visualMap: {
+      type: 'piecewise',
+      show: false,
+      min: 0,
+      max: Math.max(max || 0, 1),
+      // washi → 抹茶绿渐深 → 高强度日点樱花粉
+      pieces: [
+        { min: 1,   max: 15,  color: '#E7EFE9' },
+        { min: 15,  max: 30,  color: '#C9DECF' },
+        { min: 30,  max: 60,  color: '#A8C8B8' },
+        { min: 60,  max: 120, color: '#7FB098' },
+        { min: 120,           color: '#E8B4A0' },
+      ],
+    },
+    calendar: {
+      top: 24,
+      left: 36,
+      right: 12,
+      bottom: 0,
+      cellSize: ['auto', 14],
+      range: range,
+      splitLine: { show: false },
+      itemStyle: { color: PALETTE.cream, borderColor: '#FFFFFF', borderWidth: 2 },
+      yearLabel: { show: false },
+      dayLabel: {
+        firstDay: 1,
+        nameMap: ['日', '一', '二', '三', '四', '五', '六'],
+        color: PALETTE.warm,
+        fontSize: 10,
+      },
+      monthLabel: {
+        nameMap: ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'],
+        color: PALETTE.warm,
+        fontSize: 10,
+      },
+    },
+    series: [{
+      type: 'heatmap',
+      coordinateSystem: 'calendar',
+      data: data,
+    }],
+  });
+  window.addEventListener('resize', () => chart.resize());
+}
+
 // 暴露到 window
 window.BookCharts = {
   renderStatusChart,
@@ -232,4 +298,5 @@ window.BookCharts = {
   renderTagsChart,
   renderRatingChart,
   renderReadingTimeChart,
+  renderReadingHeatmap,
 };

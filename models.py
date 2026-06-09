@@ -65,6 +65,10 @@ class Book(db.Model):
     # 累计阅读秒数
     total_reading_seconds = db.Column(db.Integer, default=0)
 
+    # 时间里程碑奖励的计时基线(秒)。首次心跳时置为当时的累计时长,
+    # 之后只对"基线之后新增"的阅读时长发🌸,避免历史时长(含挂机虚高)被一次性补发。
+    reward_time_base = db.Column(db.Integer)
+
     # 软删除
     deleted_at = db.Column(db.DateTime)
 
@@ -104,6 +108,12 @@ class Book(db.Model):
         "Shelf",
         secondary=shelf_books,
         back_populates="books",
+    )
+    rewards = db.relationship(
+        "ReadingReward",
+        backref="book",
+        cascade="all, delete-orphan",
+        order_by="ReadingReward.milestone",
     )
 
     def __repr__(self):
@@ -259,3 +269,72 @@ class Shelf(db.Model):
 
     def __repr__(self):
         return f"<Shelf {self.id}: {self.name}>"
+
+
+class ReadingDaily(db.Model):
+    """每日阅读聚合 —— 阅读热力图(记录板)的数据源。
+
+    单用户桌面应用,全局每天一行。秒数由阅读器 30 秒心跳累加(见
+    routes/books.py::update_reading_time)。日期用**本地日期**而非 UTC,
+    避免清晨阅读被算到前一天、破坏"连续天数"。
+    """
+
+    __tablename__ = "reading_daily"
+
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, nullable=False, unique=True, index=True)  # 本地日期
+    seconds = db.Column(db.Integer, default=0, nullable=False)          # 当天阅读秒数
+    pages = db.Column(db.Integer, default=0, nullable=False)            # 当天新增定位块(可选/备用)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    def __repr__(self):
+        return f"<ReadingDaily {self.date}: {self.seconds}s>"
+
+
+class ReadingReward(db.Model):
+    """里程碑奖励(🌸) + 可选感想。
+
+    kind="time"(当前):每读满 N 分钟(默认 30,见设置)给一朵樱花,milestone 为
+    累计阅读分钟数(30,60,90...),以"每本书累计阅读时长"为准、服务端在心跳里判定。
+    kind="page"(旧数据):早期按 epub 定位块每 10 个给一朵,milestone 为页里程碑。
+    (book_id, kind, milestone) 唯一,兜底并发与重入。reflection 可为空(跳过)。
+    """
+
+    __tablename__ = "reading_rewards"
+
+    id = db.Column(db.Integer, primary_key=True)
+    book_id = db.Column(
+        db.Integer,
+        db.ForeignKey("books.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    milestone = db.Column(db.Integer, nullable=False)  # time: 累计分钟; page: 页里程碑
+    kind = db.Column(db.String(10), default="time", nullable=False)  # "time" | "page"
+    reward_type = db.Column(db.String(20), default="sakura", nullable=False)  # 预留变体
+    reflection = db.Column(db.Text)  # 可选感想,可为空
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("book_id", "kind", "milestone", name="uq_reward_book_kind_milestone"),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "book_id": self.book_id,
+            "milestone": self.milestone,
+            "kind": self.kind,
+            "reward_type": self.reward_type,
+            "reflection": self.reflection or "",
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def __repr__(self):
+        return f"<ReadingReward {self.id} book={self.book_id} {self.kind}={self.milestone}>"

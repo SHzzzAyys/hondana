@@ -108,6 +108,25 @@
     .ann-color-btn { width: 24px; height: 24px; border-radius: 999px; border: 2px solid transparent; cursor: pointer; transition: border-color 0.15s; }
     .ann-color-btn.active { border-color: #3D3D3D; }
     .ann-color-btn:hover { border-color: #8A8680; }
+
+    /* 里程碑奖励:小苗成长(放大弹出)+ 飘落叶片 */
+    .reward-bloom { display: inline-block; transform-origin: 50% 70%; }
+    .reward-bloom.bloom { animation: reward-bloom 0.9s cubic-bezier(0.34, 1.56, 0.64, 1); }
+    @keyframes reward-bloom {
+      0%   { transform: scale(0) rotate(-30deg); opacity: 0; }
+      60%  { transform: scale(1.25) rotate(8deg); opacity: 1; }
+      100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    }
+    #reward-petals .petal {
+      position: absolute; top: -8%; opacity: 0;
+      animation: petal-fall 2.4s linear forwards;
+      will-change: transform, opacity;
+    }
+    @keyframes petal-fall {
+      0%   { transform: translateY(0) rotate(0deg); opacity: 0; }
+      10%  { opacity: 0.9; }
+      100% { transform: translateY(110vh) rotate(320deg); opacity: 0; }
+    }
   </style>
 {% endblock %}
 
@@ -280,6 +299,7 @@
         <div id="progress-bar" class="h-full bg-matcha transition-all" style="width:0%"></div>
       </div>
       <span id="progress-percent">0%</span>
+      <span id="reader-flowers" class="flex items-center gap-1" title="这本书的阅读小苗（已成长次数，每 30 分钟一次）"><span id="reward-plant">🌱</span> <span id="reward-count">{{ reward_count|default(0) }}</span></span>
     </div>
   </div>
 </div>
@@ -328,6 +348,34 @@
   </div>
 </div>
 
+{# 里程碑奖励弹窗(成长型小苗 🌱) #}
+<div id="reward-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+  <div id="reward-petals" class="pointer-events-none fixed inset-0 overflow-hidden z-40"></div>
+  <div class="relative bg-white border border-border rounded-lg shadow-lg w-full max-w-md mx-4">
+    <button type="button" id="reward-modal-close" class="absolute right-4 top-4 text-warm hover:text-ink">
+      <i data-lucide="x" class="w-5 h-5"></i>
+    </button>
+    <div class="px-6 pt-7 pb-4 text-center">
+      <div id="reward-bloom" class="reward-bloom text-5xl mb-2">🌱</div>
+      <h3 id="reward-modal-title" class="text-base font-serif font-medium text-ink mb-1">小苗又长大了</h3>
+      <p class="text-xs text-warm">读到这里，写句此刻的感想吧（可跳过）</p>
+    </div>
+    <div class="px-6 pb-2">
+      <textarea id="reward-modal-note" rows="4"
+                class="w-full px-3 py-2 text-sm bg-white border border-border rounded-lg leading-relaxed placeholder:text-warm/60"
+                placeholder="此刻读到的、想到的、感受到的……"></textarea>
+    </div>
+    <div class="px-6 py-4 flex items-center justify-end gap-2">
+      <button type="button" id="reward-modal-skip"
+              class="px-4 py-2 text-sm border border-border text-warm rounded-lg hover:bg-cream">跳过</button>
+      <button type="button" id="reward-modal-save"
+              class="px-4 py-2 text-sm border border-sakura bg-sakura/15 text-ink rounded-lg hover:bg-sakura/30 flex items-center gap-1.5">
+        <i data-lucide="check" class="w-4 h-4"></i><span>保存感想</span>
+      </button>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -341,6 +389,8 @@
   const READING_TIME_URL = "{{ url_for('books.update_reading_time', book_id=book.id) }}";
   const BM_LIST_URL    = "{{ url_for('bookmarks.list_json', book_id=book.id) }}";
   const BM_CREATE_URL  = "{{ url_for('bookmarks.create', book_id=book.id) }}";
+  const REWARD_PATCH_TMPL = "{{ url_for('rewards.update', reward_id=999999) }}";
+  function rewardPatchUrl(id) { return REWARD_PATCH_TMPL.replace("999999", id); }
   const SAVED_CFI      = {{ (book.last_read_cfi | tojson) if book.last_read_cfi else 'null' }};
   const DETAIL_URL     = "{{ url_for('books.detail', book_id=book.id) }}";
   const FS_KEY   = "bookshelf:reader:font";
@@ -564,7 +614,7 @@
     // 翻译
     setupTranslation();
     // 阅读时长
-    setupReadingTimer();
+    setupReadingTimer(rendition);
   }
 
   // ---- 阅读进度(节流保存) ----
@@ -580,15 +630,54 @@
     }, 1500);
   }
 
-  // ---- 阅读时长心跳 ----
-  function setupReadingTimer() {
+  // ---- 阅读时长心跳(含空闲检测,顺带接收时间里程碑奖励) ----
+  // 仅在"窗口可见且近 IDLE_MS 内有交互(翻页/鼠标/键盘/滚动)"时才计时,
+  // 避免挂机虚高阅读时长 —— 时长统计、热力图、时间奖励都依赖它的准确性。
+  const HEARTBEAT_MS = 30000;
+  const IDLE_MS = 180000;  // 3 分钟无任何交互 → 判为离开,暂停计时
+  let _lastActivity = Date.now();
+  function markActivity() { _lastActivity = Date.now(); }
+
+  function setupReadingTimer(rendition) {
+    // 顶层(主文档)交互
+    ["mousemove", "mousedown", "keydown", "wheel", "scroll", "touchstart"].forEach(function (ev) {
+      document.addEventListener(ev, markActivity, { passive: true });
+    });
+    // 翻页是强活跃信号
+    if (rendition) {
+      rendition.on("relocated", markActivity);
+      // 阅读区在 iframe 内,需单独挂到每个渲染章节的文档上
+      if (rendition.hooks && rendition.hooks.content) {
+        rendition.hooks.content.register(function (contents) {
+          try {
+            var doc = contents.document;
+            ["mousemove", "mousedown", "keydown", "wheel", "touchstart"].forEach(function (ev) {
+              doc.addEventListener(ev, markActivity, { passive: true });
+            });
+          } catch (_) {}
+        });
+      }
+    }
+    markActivity();  // 打开即视为一次活跃
+
     setInterval(function () {
+      // 窗口不可见,或超过空闲阈值无交互 → 不计时
+      if (document.hidden) return;
+      if (Date.now() - _lastActivity > IDLE_MS) return;
       fetch(READING_TIME_URL, {
         method: "PATCH", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ seconds: 30 }),
-      }).catch(function (e) { console.warn("[reader] reading time failed", e); });
-    }, 30000);
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data && data.reward && data.reward.is_new) {
+            updateRewardCount(data.reward.total_flowers);
+            showRewardModal(data.reward.reward_id, data.reward.minutes, data.reward.total_flowers);
+          }
+        })
+        .catch(function (e) { console.warn("[reader] reading time failed", e); });
+    }, HEARTBEAT_MS);
   }
 
   // ---- 翻译功能 ----
@@ -1119,8 +1208,104 @@
       var p = Math.round((pct || 0) * 100);
       progressBar.style.width = p + "%";
       progressPercent.textContent = p + "%";
+      // 把"加载中…"替换成"第 N / M 页"(以 epub.js 定位块计)
+      try {
+        var loc = book.locations.locationFromCfi(location.start.cfi);
+        var total = book.locations.length();
+        if (loc >= 0 && total > 0 && progressLabel) {
+          progressLabel.textContent = "第 " + (loc + 1) + " / " + total + " 页";
+        }
+      } catch (_) {}
     } catch (_) {}
   }
+
+  // ---------- 时间里程碑奖励(成长型小苗,每读满 N 分钟成长一次) ----------
+  // 读得越多,本书的小苗长得越高:种子→新芽→幼苗→茁壮→小树→繁花
+  function plantStage(n) {
+    if (n >= 20) return { emoji: "🌸", label: "繁花满树" };
+    if (n >= 12) return { emoji: "🌳", label: "小树成荫" };
+    if (n >= 6)  return { emoji: "🪴", label: "茁壮成长" };
+    if (n >= 3)  return { emoji: "🌿", label: "抽枝展叶" };
+    if (n >= 1)  return { emoji: "🌱", label: "新芽冒头" };
+    return { emoji: "🌰", label: "一颗种子" };
+  }
+
+  function updateRewardCount(n) {
+    if (typeof n !== "number") return;
+    var cnt = document.getElementById("reward-count");
+    if (cnt) cnt.textContent = n;
+    var plant = document.getElementById("reward-plant");
+    if (plant) plant.textContent = plantStage(n).emoji;
+  }
+
+  function showRewardModal(rewardId, minutes, count) {
+    var modal = document.getElementById("reward-modal");
+    var title = document.getElementById("reward-modal-title");
+    var note = document.getElementById("reward-modal-note");
+    var bloom = document.getElementById("reward-bloom");
+    if (!modal) return;
+    var n = typeof count === "number" ? count : 0;
+    var stage = plantStage(n);
+    var grew = n >= 1 && plantStage(n).emoji !== plantStage(n - 1).emoji;  // 是否进阶到新形态
+    if (bloom) bloom.textContent = stage.emoji;
+    if (title) {
+      title.textContent = "专注阅读 " + minutes + " 分钟 · " + stage.label + (grew ? " ↑ 小苗长大了" : "");
+    }
+    if (note) note.value = "";
+    modal.dataset.rewardId = rewardId == null ? "" : String(rewardId);
+    modal.classList.remove("hidden");
+    if (bloom) { bloom.classList.remove("bloom"); void bloom.offsetWidth; bloom.classList.add("bloom"); }
+    spawnLeaves();
+    setTimeout(function () { try { note && note.focus(); } catch (_) {} }, 350);
+  }
+
+  function saveRewardReflection() {
+    var modal = document.getElementById("reward-modal");
+    var note = document.getElementById("reward-modal-note");
+    var id = modal && modal.dataset.rewardId;
+    var text = note ? (note.value || "").trim() : "";
+    if (id && text) {
+      fetch(rewardPatchUrl(id), {
+        method: "PATCH", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reflection: text }),
+      }).catch(function (e) { console.warn("[reader] save reflection failed", e); });
+    }
+    if (modal) modal.classList.add("hidden");
+  }
+
+  function closeRewardModal() {
+    var modal = document.getElementById("reward-modal");
+    if (modal) modal.classList.add("hidden");
+  }
+
+  function spawnLeaves() {
+    var layer = document.getElementById("reward-petals");
+    if (!layer) return;
+    layer.innerHTML = "";
+    for (var i = 0; i < 12; i++) {
+      var leaf = document.createElement("span");
+      leaf.className = "petal";
+      leaf.textContent = "🍃";
+      leaf.style.left = (Math.random() * 100) + "%";
+      leaf.style.animationDelay = (Math.random() * 0.6) + "s";
+      leaf.style.fontSize = (12 + Math.random() * 14) + "px";
+      layer.appendChild(leaf);
+    }
+    setTimeout(function () { layer.innerHTML = ""; }, 2800);
+  }
+
+  (function bindRewardModal() {
+    var save = document.getElementById("reward-modal-save");
+    var skip = document.getElementById("reward-modal-skip");
+    var close = document.getElementById("reward-modal-close");
+    if (save) save.addEventListener("click", saveRewardReflection);
+    if (skip) skip.addEventListener("click", closeRewardModal);
+    if (close) close.addEventListener("click", closeRewardModal);
+    // 初始化:按本书已有里程碑数渲染小苗当前形态
+    var cntEl = document.getElementById("reward-count");
+    updateRewardCount(cntEl ? (parseInt(cntEl.textContent, 10) || 0) : 0);
+  })();
 })();
 </script>
 {% endblock %}
